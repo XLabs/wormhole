@@ -2,10 +2,14 @@ package tss
 
 import (
 	"context"
+	crand "crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"fmt"
 	"math/big"
 	"math/rand"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -491,6 +495,29 @@ func TestBadInputs(t *testing.T) {
 		_, err = e1.FetchCertificate(&tsscommv1.PartyId{})
 		a.ErrorContains(err, "not found")
 	})
+}
+
+func createX509Cert(dnsName string) *x509.Certificate {
+	// using random serial number
+	var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
+
+	serialNumber, err := crand.Int(crand.Reader, serialNumberLimit)
+	if err != nil {
+		panic(err)
+	}
+
+	tmpl := x509.Certificate{
+		SerialNumber:          serialNumber,
+		Subject:               pkix.Name{Organization: []string{"tsscomm"}},
+		SignatureAlgorithm:    x509.ECDSAWithSHA256,
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Hour * 24 * 366 * 40), // valid for > 40 years used for tests...
+		BasicConstraintsValid: true,
+
+		DNSNames:    []string{"localhost", dnsName},
+		IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1)},
+	}
+	return &tmpl
 }
 
 func TestFetchPartyId(t *testing.T) {
