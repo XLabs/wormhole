@@ -19,18 +19,18 @@ import (
 	"github.com/yossigi/tss-lib/v2/tss"
 )
 
-var dkgLocation = flag.String("cnfg", "", "path to the dkg config file in json format")
+var cnfgPath = flag.String("cnfg", "cnfg.example.json", "path to config file in json format used to run the protocol")
 
 func main() {
 	flag.Parse()
 
-	if *dkgLocation == "" {
+	if *cnfgPath == "" {
 		flag.PrintDefaults()
 
 		return
 	}
 
-	f, err := os.ReadFile(*dkgLocation)
+	f, err := os.ReadFile(*cnfgPath)
 	if err != nil {
 		fmt.Println("failed to read file, err: ", err)
 
