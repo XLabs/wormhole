@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"path"
 	"time"
 
 	engine "github.com/certusone/wormhole/node/pkg/tss"
@@ -231,11 +232,14 @@ keygenLoop:
 			panic("")
 		}
 
-		fname := fmt.Sprintf("%s.json", all[i].whereToStore)
+		if err := os.MkdirAll(all[i].whereToStore, 0777); err != nil {
+			panic("Failed to create directory: " + err.Error())
+		}
 
-		err = os.WriteFile(fname, bts, 0777)
-		if err != nil {
-			panic("Failed to write to disk")
+		fname := path.Join(all[i].whereToStore, "secrets.json")
+
+		if err := os.WriteFile(fname, bts, 0777); err != nil {
+			panic("Failed to write to disk: " + err.Error())
 		}
 	}
 
