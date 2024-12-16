@@ -168,6 +168,19 @@ func mustFeedParty(p tss.Party, parsedMsg tss.ParsedMessage) {
 	}
 }
 
+// In high level, this function simulates the network communication between the parties.
+// It listens on the output channel of each party and puts it into a bag of messages.
+// Once it has gone through all the parties, it empties the bag of messages and feeds
+// each party with all messages that were addressed to it (some messages are broadcast messages too).
+// It repeats this process until every party outputs a `secrets` file.
+// Then it stores these secrets.
+//
+// In a network setting, each guardian would need to listen for messages from all other guardians, and feed the message to the tss.Party.Update method.
+// In addition to that, to ensure the protocol's correctness, one would need to ensure no equivocation on broadcasts.
+// As a result, one would need to create a broadcast channel:
+// Either by using reliable broadcast protocol, or some variant protocol (e.g., a variant on the reliable-broadcast
+// protocol that rebroadcast the hash of a message and not duplicate the message itself).
+// Thus ensuring that all parties feed the tss.Party.Update method with the same message.
 func simulateDKG(all []*dkgPlayer) {
 	done := 0
 
