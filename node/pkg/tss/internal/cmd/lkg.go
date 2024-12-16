@@ -1,3 +1,7 @@
+// This file runs Distrubted Key Generation (DKG) protocol in local setting.
+// That is, a gorotuine orchestrator simulates the network communication between the parties
+// by collecting the outputs of the parties and feeding these output messages to the correct parties (using the `Update` method).
+
 package main
 
 import (
