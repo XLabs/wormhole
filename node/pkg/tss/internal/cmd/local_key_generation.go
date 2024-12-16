@@ -42,7 +42,7 @@ func main() {
 		return
 	}
 
-	cnfg := &DKGConfig{}
+	cnfg := &LKGConfig{}
 	err = json.Unmarshal(f, cnfg)
 	if err != nil {
 		fmt.Println("failed to unmarshal config, err: ", err)
@@ -53,8 +53,7 @@ func main() {
 	Run(cnfg)
 }
 
-// make a json file with the following content:
-type DKGConfig struct {
+type LKGConfig struct {
 	NumParticipants int
 	WantedThreshold int // should be non inclusive. That is, if you have n=19,f=6, then threshold=12 (13 guardians needed to sign).
 
@@ -95,7 +94,7 @@ type dkgPlayer struct {
 	protocolEndOutput <-chan *keygen.LocalPartySaveData
 }
 
-func Run(cnfg *DKGConfig) {
+func Run(cnfg *LKGConfig) {
 	if cnfg == nil {
 		panic("config is nil")
 	}
@@ -245,7 +244,7 @@ keygenLoop:
 
 }
 
-func (cnfg *DKGConfig) find(tlsX509 []byte) *GuardianSpecifics {
+func (cnfg *LKGConfig) find(tlsX509 []byte) *GuardianSpecifics {
 	for _, g := range cnfg.GuardianSpecifics {
 		if string(g.Identifier.TlsX509) == string(tlsX509) {
 			return &g
@@ -255,7 +254,7 @@ func (cnfg *DKGConfig) find(tlsX509 []byte) *GuardianSpecifics {
 	return nil
 }
 
-func (cnfg *DKGConfig) validate() error {
+func (cnfg *LKGConfig) validate() error {
 	if cnfg.NumParticipants < 1 {
 		return fmt.Errorf("number of participants should be at least 1")
 	}
@@ -271,7 +270,7 @@ func (cnfg *DKGConfig) validate() error {
 	return nil
 }
 
-func setupPlayers(cnfg *DKGConfig) ([]*dkgPlayer, error) {
+func setupPlayers(cnfg *LKGConfig) ([]*dkgPlayer, error) {
 	if err := cnfg.validate(); err != nil {
 		return nil, err
 	}
