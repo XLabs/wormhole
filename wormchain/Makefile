@@ -11,7 +11,7 @@ ldflags = \
 	-X github.com/cosmos/cosmos-sdk/version.ServerName=wormchaind\
 	-X github.com/cosmos/cosmos-sdk/version.Version=$(VERSION) \
 	-X github.com/cosmos/cosmos-sdk/version.Commit=$(COMMIT) \
-	-X "github.com/cosmos/cosmos-sdk/version.BuildTags=ledger"
+	-X "github.com/cosmos/cosmos-sdk/version.BuildTags=ledger,pgsql"
 BUILD_FLAGS := -ldflags '$(ldflags)'
 
 .PHONY: all
@@ -23,7 +23,7 @@ client: build/wormchaind
 
 build/wormchaind: cmd/wormchaind/main.go $(GO_FILES)
 	@echo building "wormchaind-$(VERSION)"
-	go build -v $(BUILD_FLAGS) -tags ledger -o $@ $<
+	go build -v $(BUILD_FLAGS) -tags "ledger pgsql" -o $@ $<
 	cp "$@" "$@"-"$(VERSION)"
 
 # proto: $(PROTO_FILES)
