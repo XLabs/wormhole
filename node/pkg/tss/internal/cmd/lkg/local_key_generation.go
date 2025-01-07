@@ -24,7 +24,7 @@ import (
 	"github.com/yossigi/tss-lib/v2/tss"
 )
 
-var cnfgPath = flag.String("cnfg", "cnfg.example.json", "path to config file in json format used to run the protocol")
+var cnfgPath = flag.String("cnfg", "", "path to config file in json format used to run the protocol")
 
 func main() {
 	flag.Parse()
