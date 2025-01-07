@@ -1159,6 +1159,8 @@ func TestFT(t *testing.T) {
 	})
 
 	t.Run("server crashes on a single chain, shouldn't affect signatures on other chain", func(t *testing.T) {
+		/* expects 2 sigs to be created. one with the server that has an issue in chain 0
+		and one on chain 0 without that server. */
 		a := assert.New(t)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
@@ -1178,8 +1180,8 @@ func TestFT(t *testing.T) {
 
 		fmt.Println("engines started, requesting sigs")
 
-		tsks := make([]party.SigningTask, 2)
-		for i := range tsks {
+		var tsks []party.SigningTask
+		for i := range 2 {
 			tsks = append(tsks, party.SigningTask{
 				Digest:       party.Digest{1, 2, 3, 4, 5, 6, 7, 8, 9},
 				Faulties:     []*tss.PartyID{},
