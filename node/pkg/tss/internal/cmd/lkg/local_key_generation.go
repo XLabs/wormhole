@@ -5,6 +5,7 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -24,7 +25,7 @@ import (
 	"github.com/yossigi/tss-lib/v2/tss"
 )
 
-var cnfgPath = flag.String("cnfg", "", "path to config file in json format used to run the protocol")
+var cnfgPath = flag.String("cnfg", "tstrun.json", "path to config file in json format used to run the protocol")
 
 func main() {
 	flag.Parse()
@@ -70,7 +71,7 @@ type Identifier struct {
 }
 
 type dkgPlayer struct {
-	*tss.PartyID
+	pid *tss.PartyID
 
 	whereToStore string
 
@@ -186,7 +187,7 @@ func simulateDKG(all []*dkgPlayer) {
 
 	keyToParty := map[string]tss.Party{}
 	for _, player := range all {
-		keyToParty[string(player.PartyID.GetKey())] = player.localParty
+		keyToParty[string(player.pid.GetKey())] = player.localParty
 	}
 
 	guardians := make([]*engine.GuardianStorage, len(all))
@@ -283,6 +284,7 @@ func setupPlayers(cnfg *LKGConfig) ([]*dkgPlayer, error) {
 
 	partyIDS := make(tss.UnSortedPartyIDs, cnfg.NumParticipants)
 
+	mp := map[string]*GuardianSpecifics{}
 	for i, dt := range cnfg.GuardianSpecifics {
 		crt, err := internal.PemToCert(dt.Identifier.TlsX509)
 		if err != nil {
@@ -293,14 +295,25 @@ func setupPlayers(cnfg *LKGConfig) ([]*dkgPlayer, error) {
 			return nil, fmt.Errorf("expected DNS names in the cert")
 		}
 
+		pk, ok := crt.PublicKey.(*ecdsa.PublicKey) // TODO
+		if !ok {
+			return nil, fmt.Errorf("expected ecdsa public key in certs")
+		}
+
+		bts, err := internal.PublicKeyToPem(pk)
+		if err != nil {
+			return nil, err
+		}
 		partyIDS[i] = &tss.PartyID{
 			MessageWrapper_PartyID: &tss.MessageWrapper_PartyID{
 				Id:      string(crt.DNSNames[0]),
 				Moniker: "",
-				Key:     dt.Identifier.TlsX509,
+				Key:     bts, // TODO this isn't the key but the full cert. this is a bug.
 			},
 			Index: -1, // not known until sorted
 		}
+
+		mp[string(bts)] = &cnfg.GuardianSpecifics[i]
 	}
 
 	sortedPIDs := tss.SortPartyIDs(partyIDS)
@@ -314,27 +327,27 @@ func setupPlayers(cnfg *LKGConfig) ([]*dkgPlayer, error) {
 	peerCerts := make([]engine.PEM, cnfg.NumParticipants)
 
 	for _, pid := range sortedPIDs {
-		peerCerts[pid.Index] = pid.Key
 
 		tmp := make([]byte, 32)
 		copy(tmp, loadBalancingKey)
 
 		peerContext := tss.NewPeerContext(sortedPIDs)
 
+		gspecific := mp[string(pid.Key)]
+		peerCerts[pid.Index] = gspecific.Identifier.TlsX509
+
 		all[pid.Index] = &dkgPlayer{
-			PartyID:             pid,
+			pid:                 pid,
+			whereToStore:        gspecific.WhereToSaveSecrets,
 			peerCerts:           peerCerts,
+			selfCert:            gspecific.Identifier.TlsX509,
 			loadDistributionKey: tmp,
 			PeerContext:         peerContext,
 			Parameters:          tss.NewParameters(tss.S256(), peerContext, pid, cnfg.NumParticipants, cnfg.WantedThreshold),
 			idToPidMapping:      idToPID,
-
-			out:               make(<-chan tss.Message),
-			protocolEndOutput: make(<-chan *keygen.LocalPartySaveData),
-
-			whereToStore: cnfg.find(pid.Key).WhereToSaveSecrets,
-
-			localParty: nil,
+			localParty:          nil,
+			out:                 make(<-chan tss.Message),
+			protocolEndOutput:   make(<-chan *keygen.LocalPartySaveData),
 		}
 
 		all[pid.Index].setNewKeygenHandler()
@@ -383,11 +396,11 @@ func (player *dkgPlayer) handleKeygenEndMessage(m *keygen.LocalPartySaveData, gu
 	}
 
 	guardians[i] = &engine.GuardianStorage{
-		Self: player.PartyID,
+		Self: player.pid,
 
 		Guardians: player.PeerContext.IDs(),
 
-		TlsX509:    engine.PEM(player.Id),
+		TlsX509:    engine.PEM(player.selfCert),
 		PrivateKey: nil, // each guardian should load this by themselves.
 
 		GuardianCerts: player.peerCerts,
