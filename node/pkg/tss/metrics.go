@@ -32,6 +32,55 @@ var (
 		},
 	)
 
+	calledAsyncSignCntr = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "wormhole_tss_called_async_sign",
+			Help: "total times async sign was called",
+		},
+	)
+
+	isSignerCntr = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "wormhole_tss_num_times_is_signer",
+			Help: "counts if this node is a signer total",
+		},
+	)
+
+	numEchosSeenCntr = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "wormhole_tss_num_echos_seen",
+			Help: "echoes receives total",
+		},
+	)
+
+	echoesBytesCntr = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "wormhole_tss_echoes_bytes",
+			Help: "echoes received bytes total",
+		},
+	)
+
+	totalBytesReceived = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "wormhole_tss_bytes_received",
+			Help: "bytes received total",
+		},
+	)
+
+	numBytesReceivedByUnicast = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "wormhole_tss_bytes_unicasts",
+			Help: "unicasts bytes received total",
+		},
+	)
+
+	numBytesReceivedByBroadcast = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "wormhole_tss_bytes_broadcasts",
+			Help: "broadcasts bytes received total",
+		},
+	)
+
 	activeGuardiansByChain = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "wormhole_tss_active_guardians_by_chain",

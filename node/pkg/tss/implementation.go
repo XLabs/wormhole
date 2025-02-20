@@ -29,6 +29,7 @@ import (
 	"github.com/xlabs/tss-lib/v2/ecdsa/party"
 	"github.com/xlabs/tss-lib/v2/tss"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 func init() {
@@ -313,10 +314,14 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 
 		// TODO: cosider not recomputing the info, and just used it from `t.fp.GetSigningInfo(sigTask)`
 		info, err = t.fp.AsyncRequestNewSignature(sigTask)
-
+		calledAsyncSignCntr.Inc()
 		if err != nil {
 			// note, we don't inform the fault-tolerance tracker of the error, so it can put this guardian in timeoout.
 			return err
+		}
+
+		if info.IsSigner {
+			isSignerCntr.Inc()
 		}
 
 		flds := []zap.Field{
@@ -918,6 +923,23 @@ func (t *Engine) handleBroadcast(m Incoming) error {
 		return err
 	}
 
+	tmp := proto.Clone(m.toBroadcastMsg()).(*tsscommv1.Echo)
+	tmp.Message.Sender.Id = "t-gcp-threshsignnet-usw-02.gcp.testnet.xlabs.xyz:8998"
+	tmp.Message.Sender.Key = []byte("LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFem1UQkdnaGpvYU9aMWlrNndERHNVcm45dngwUQoybU0wTFM0UWlId2szSFlrZ1RiblNQTEFlNUVtMmpUSTh4b0pZMDRJT0VaeDlyUm5iNHlqMnMzOXh3PT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==")
+	bts, err := proto.Marshal(tmp)
+	if err != nil {
+		return fmt.Errorf("couldn't update usage metrics: %w", err)
+	}
+
+	total := float64(len(bts))
+	if _, ok := parsed.(deliverable); ok {
+		echoesBytesCntr.Add(total)
+		numEchosSeenCntr.Inc()
+	}
+
+	numBytesReceivedByBroadcast.Add(total)
+	totalBytesReceived.Add(total)
+
 	shouldEcho, deliverable, err := t.broadcastInspection(parsed, m)
 	if err != nil {
 		return err
@@ -956,6 +978,17 @@ func (t *Engine) handleUnicast(m Incoming) error {
 	if err := validateUnicastCorrectForm(unicast); err != nil {
 		return err
 	}
+
+	tmp := proto.Clone(unicast).(*tsscommv1.Unicast)
+	bts, err := proto.Marshal(tmp)
+	if err != nil {
+		return fmt.Errorf("couldn't update usage metrics: %w", err)
+	}
+
+	total := float64(len(bts))
+
+	numBytesReceivedByUnicast.Add(total)
+	totalBytesReceived.Add(total)
 
 	switch v := unicast.Content.(type) {
 	case *tsscommv1.Unicast_Vaav1:
