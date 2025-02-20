@@ -350,7 +350,13 @@ func (t *Engine) broadcastInspection(parsed broadcastMessage, msg Incoming) (boo
 		shouldBroadcast = false // no need to echo if we're the original sender.
 	}
 
-	return shouldBroadcast, t.getDeliverableIfAllowed(state), nil
+	deliverable, ok := parsed.(deliverable)
+	// return shouldBroadcast, t.getDeliverableIfAllowed(state), nil
+	if !ok {
+		deliverable = nil
+	}
+
+	return false, deliverable, nil
 }
 
 func (t *Engine) fetchOrCreateState(parsed broadcastMessage) *broadcaststate {

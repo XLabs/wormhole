@@ -411,7 +411,7 @@ func (t *Engine) prepareThenAnounceNewDigest(d party.Digest, chainID vaa.ChainID
 	}
 
 	// at this point the TSS engine saw a valid digest to sign, it will anounce it to the others (if consistency levels allows it).
-	t.anounceNewDigest(d[:], chainID, consistencyLvl)
+	// t.anounceNewDigest(d[:], chainID, consistencyLvl)
 
 	return nil
 }
@@ -596,7 +596,7 @@ func (t *Engine) Start(ctx context.Context) error {
 	go t.ftTracker()
 
 	t.logger.Info(
-		"tss engine started",
+		"tss engine started. Branch j-main-testing!",
 		zap.Any("configs", t.GuardianStorage.Configurations),
 		zap.Bool("hasGuardianSet", t.gst != nil),
 	)
