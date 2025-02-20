@@ -8,6 +8,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof" // pprof is used for debugging.
+	"runtime"
 
 	"sync"
 	"sync/atomic"
@@ -27,6 +30,16 @@ import (
 	"github.com/xlabs/tss-lib/v2/tss"
 	"go.uber.org/zap"
 )
+
+func init() {
+
+	runtime.SetBlockProfileRate(1)
+	runtime.SetMutexProfileFraction(1)
+
+	go func() {
+		http.ListenAndServe("localhost:7129", nil) // Start pprof server on port 6060
+	}()
+}
 
 type uuid digest // distinguishing between types to avoid confusion.
 
