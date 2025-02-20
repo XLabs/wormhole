@@ -596,7 +596,7 @@ func (t *Engine) Start(ctx context.Context) error {
 	go t.ftTracker()
 
 	t.logger.Info(
-		"tss engine started. Branch j-main-testing!",
+		"tss engine started. Branch j-main-testing (2)!",
 		zap.Any("configs", t.GuardianStorage.Configurations),
 		zap.Bool("hasGuardianSet", t.gst != nil),
 	)
