@@ -932,7 +932,7 @@ func (t *Engine) handleBroadcast(m Incoming) error {
 	}
 
 	total := float64(len(bts))
-	if _, ok := parsed.(deliverable); ok {
+	if _, ok := parsed.(*parsedHashEcho); ok {
 		echoesBytesCntr.Add(total)
 		numEchosSeenCntr.Inc()
 	}
