@@ -1102,6 +1102,57 @@ func TestNoFaultsFlow(t *testing.T) {
 			a.FailNow("context expired without signature")
 		}
 	})
+
+	t.Run("TSS sign once, even after VAA seen by leader", func(t *testing.T) {
+		a := assert.New(t)
+
+		nvaa, gs := genVaaAndGuardianSet(a)
+
+		// ensuring valid vaa.
+		a.NoError(nvaa.Verify(gs.Keys))
+
+		gst := whcommon.NewGuardianSetState(nil)
+		gst.Set(gs)
+
+		engines, err := loadGuardians(19, "tss19")
+		a.NoError(err)
+
+		supctx := testutils.MakeSupervisorContext(context.Background())
+		ctx, cancel := context.WithTimeout(supctx, time.Second*20)
+		defer cancel()
+
+		engines[0].isleader = true
+		for _, engine := range engines {
+			engine.LeaderIdentity = engines[0].Self.Key
+			engine.SetGuardianSetState(gst)
+			a.NoError(engine.Start(ctx))
+		}
+
+		dnchn := msgHandler(ctx, engines, 1)
+
+		dgst := nvaa.SigningDigest().Bytes()
+		chnid := nvaa.EmitterChain
+
+		for _, e := range engines {
+			a.NoError(e.BeginAsyncThresholdSigningProtocol(dgst, chnid, reportableConsistancyLevel))
+		}
+
+		// e := getSigningGuardian(a, engines, party.SigningTask{
+		// 	Digest:       party.Digest(dgst),
+		// 	Faulties:     []*tss.PartyID{},
+		// 	AuxilaryData: chainIDToBytes(chnid),
+
+		engines[0].WitnessNewVaa(nvaa)
+		if ctxExpiredFirst(ctx, dnchn) {
+			a.FailNow("Receied more than 1 signature.")
+		}
+
+		// })
+		time.Sleep(time.Second * 1)
+
+		// We must have some bug: 19 servers sees 13 echos. while 5 servers sees 24 echos for one sig?
+
+	})
 }
 
 func genVaaAndGuardianSet(a *assert.Assertions) (*vaa.VAA, *whcommon.GuardianSet) {
