@@ -197,7 +197,8 @@ type mockGuardianRunnableParams struct {
 	informOnNewVAAs bool
 
 	//optional:
-	pathToGuardianSetFile string
+	// used for specific tests only.
+	useKeysetLoadingOption bool
 }
 
 // mockGuardianRunnable returns a runnable that first sets up a mock guardian an then runs it.
@@ -217,8 +218,8 @@ func mockGuardianRunnable(t testing.TB, mockGuardianIndex uint, prms mockGuardia
 			return err
 		}
 
-		if prms.pathToGuardianSetFile != "" {
-			guardianOptions = append(guardianOptions, GuardianOptionSetLoader(prms.pathToGuardianSetFile))
+		if prms.useKeysetLoadingOption {
+			guardianOptions = append(guardianOptions, GuardianOptionSetLoader(int(mockGuardianIndex)))
 		}
 
 		guardianNode := NewGuardianNode(
@@ -1494,6 +1495,15 @@ func TestLoadGuardianSet(t *testing.T) {
 	supervisor.New(rootCtx, zapLogger, func(ctx context.Context) error {
 		gs := newMockGuardianSet(t, testId, numGuardians)
 
+		for i, g := range gs {
+			sk, err := testutils.LoadMainNetKey(i)
+			if err != nil {
+				panic(err)
+			}
+
+			g.guardianSigner = sk
+		}
+
 		// create guardianset with reverse order so we can test the loading of the guardian set
 		pkeys := make(common.MarshalableAddresses, numGuardians)
 		for i := range numGuardians {
@@ -1523,10 +1533,10 @@ func TestLoadGuardianSet(t *testing.T) {
 		for i := 0; i < numGuardians; i++ {
 			mockGuardianIndex := uint(i)
 			gRun := mockGuardianRunnable(t, mockGuardianIndex, mockGuardianRunnableParams{
-				gs:                    gs,
-				obsDb:                 obsDb,
-				informOnNewVAAs:       false,
-				pathToGuardianSetFile: tmpFile.Name(),
+				gs:                     gs,
+				obsDb:                  obsDb,
+				informOnNewVAAs:        false,
+				useKeysetLoadingOption: true,
 			})
 
 			err := supervisor.Run(innerCtx, fmt.Sprintf("g-%d", i), gRun)

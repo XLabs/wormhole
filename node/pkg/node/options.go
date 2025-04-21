@@ -7,14 +7,13 @@ import (
 	"net/http"
 	"time"
 
-	"os"
-
 	"github.com/benbjohnson/clock"
 	"github.com/certusone/wormhole/node/pkg/accountant"
 	"github.com/certusone/wormhole/node/pkg/common"
 	"github.com/certusone/wormhole/node/pkg/db"
 	"github.com/certusone/wormhole/node/pkg/governor"
 	"github.com/certusone/wormhole/node/pkg/gwrelayer"
+	"github.com/certusone/wormhole/node/pkg/internal/testutils"
 	"github.com/certusone/wormhole/node/pkg/p2p"
 	"github.com/certusone/wormhole/node/pkg/processor"
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
@@ -637,23 +636,20 @@ func GuardianOptionTSSNetwork(
 
 // Not a runnable. This is a helper function to load and set a guardianSet from a file.
 // used for testing over mainnet configuartions without using real guardianSet and real VAAs.
-func GuardianOptionSetLoader(path string) *GuardianOption {
+func GuardianOptionSetLoader(guardianIndex int) *GuardianOption {
 	return &GuardianOption{
 		name:         "setLoader",
 		dependencies: []string{"tsscomm", "processor"},
 		f: func(ctx context.Context, logger *zap.Logger, g *G) error {
+			logger.Warn("Guardian is loading with FAKE guardian set. This is only for testing purposes. Do not use this in production.")
+
 			if g.setC.writeC == nil {
 				return fmt.Errorf("can load guardian set only if setC is configured")
 			}
 
-			pubkeysBytes, err := os.ReadFile(path)
+			keys, err := testutils.LoadPublicKeys()
 			if err != nil {
-				return fmt.Errorf("failed to read guardian set file: %w", err)
-			}
-
-			keys := common.MarshalableAddresses{}
-			if err := keys.Unmarshal(pubkeysBytes); err != nil {
-				return fmt.Errorf("failed to unmarshal guardian set: %w", err)
+				return fmt.Errorf("failed to load public keys: %w", err)
 			}
 
 			// figuring out the index of this guardian
@@ -662,20 +658,11 @@ func GuardianOptionSetLoader(path string) *GuardianOption {
 				return fmt.Errorf("failed to get guardian address")
 			}
 
-			gIndex := -1
-			for i, add := range keys {
-				if add == address {
-					gIndex = i
-
-					break
-				}
+			if address != keys[guardianIndex] {
+				return fmt.Errorf("guardian index %d does not match the address %s", guardianIndex, address.Hex())
 			}
 
-			if gIndex <= -1 {
-				return fmt.Errorf("guardian address not found in guardian set")
-			}
-
-			g.setC.writeC <- common.NewGuardianSet(keys, uint32(gIndex))
+			g.setC.writeC <- common.NewGuardianSet(keys, uint32(guardianIndex))
 
 			return nil
 		}}
