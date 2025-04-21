@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -48,6 +47,32 @@ const MaxNodesPerGuardian = 20
 // from the state by Cleanup().
 const MaxStateAge = 1 * time.Minute
 
+type MarshalableAddresses []common.Address
+
+func (e MarshalableAddresses) Marshal() []byte {
+	b := make([]byte, len(e)*common.AddressLength)
+	for i, a := range e {
+		copy(b[i*common.AddressLength:], a[:])
+	}
+	return b
+}
+
+func (e *MarshalableAddresses) Unmarshal(b []byte) error {
+	if len(b)%common.AddressLength != 0 {
+		return fmt.Errorf("invalid length %d", len(b))
+	}
+
+	numAddress := len(b) / common.AddressLength
+
+	*e = make([]common.Address, numAddress)
+
+	for i := range numAddress {
+		copy((*e)[i][:], b[i*common.AddressLength:])
+	}
+
+	return nil
+}
+
 type GuardianSet struct {
 	// Guardian's public key hashes truncated by the ETH standard hashing mechanism (20 bytes).
 	Keys []common.Address
@@ -80,23 +105,6 @@ func NewGuardianSet(keys []common.Address, index uint32) *GuardianSet {
 		quorum: vaa.CalculateQuorum(len(keys)),
 		keyMap: keyMap,
 	}
-}
-
-func (g *GuardianSet) UnmarshalBinary(data []byte) error {
-	if err := json.Unmarshal(data, g); err != nil {
-		return fmt.Errorf("guardian set: %w", err)
-	}
-
-	g.keyMap = make(map[common.Address]int)
-	for idx, key := range g.Keys {
-		g.keyMap[key] = idx
-	}
-
-	return nil
-}
-
-func (g *GuardianSet) MarshalBinary() ([]byte, error) {
-	return json.Marshal(g)
 }
 
 func (g *GuardianSet) KeysAsHexStrings() []string {

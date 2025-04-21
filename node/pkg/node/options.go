@@ -646,13 +646,13 @@ func GuardianOptionSetLoader(path string) *GuardianOption {
 				return fmt.Errorf("can load guardian set only if setC is configured")
 			}
 
-			gsBytes, err := os.ReadFile(path)
+			pubkeysBytes, err := os.ReadFile(path)
 			if err != nil {
 				return fmt.Errorf("failed to read guardian set file: %w", err)
 			}
 
-			gs := &common.GuardianSet{}
-			if err := gs.UnmarshalBinary(gsBytes); err != nil {
+			keys := common.MarshalableAddresses{}
+			if err := keys.Unmarshal(pubkeysBytes); err != nil {
 				return fmt.Errorf("failed to unmarshal guardian set: %w", err)
 			}
 
@@ -663,7 +663,7 @@ func GuardianOptionSetLoader(path string) *GuardianOption {
 			}
 
 			gIndex := -1
-			for i, add := range gs.Keys {
+			for i, add := range keys {
 				if add == address {
 					gIndex = i
 
@@ -675,7 +675,7 @@ func GuardianOptionSetLoader(path string) *GuardianOption {
 				return fmt.Errorf("guardian address not found in guardian set")
 			}
 
-			g.setC.writeC <- common.NewGuardianSet(gs.Keys, uint32(gIndex))
+			g.setC.writeC <- common.NewGuardianSet(keys, uint32(gIndex))
 
 			return nil
 		}}

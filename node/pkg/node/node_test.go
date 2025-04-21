@@ -1495,20 +1495,19 @@ func TestLoadGuardianSet(t *testing.T) {
 		gs := newMockGuardianSet(t, testId, numGuardians)
 
 		// create guardianset with reverse order so we can test the loading of the guardian set
-		pkeys := make([]eth_common.Address, numGuardians)
+		pkeys := make(common.MarshalableAddresses, numGuardians)
 		for i := range numGuardians {
 			// reverse order
 			pkeys[(numGuardians-1)-i] = eth_crypto.PubkeyToAddress(gs[i].guardianSigner.PublicKey(context.Background()))
 		}
-
-		bts, err := common.NewGuardianSet(pkeys, 0).MarshalBinary()
-		require.NoError(t, err)
 
 		// dump into tmp file
 		tmpFile, err := os.CreateTemp("", "guardian-set")
 		require.NoError(t, err)
 		defer os.Remove(tmpFile.Name())
 		defer tmpFile.Close()
+
+		bts := pkeys.Marshal()
 
 		n, err := tmpFile.Write(bts)
 		if err != nil || n != len(bts) {
