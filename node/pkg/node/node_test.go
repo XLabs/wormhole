@@ -191,8 +191,17 @@ func overridePortOfTss(gs []*mockGuardian) {
 	}
 }
 
+type mockGuardianRunnableParams struct {
+	gs              []*mockGuardian
+	obsDb           mock.ObservationDb
+	informOnNewVAAs bool
+
+	//optional:
+	pathToGuardianSetFile string
+}
+
 // mockGuardianRunnable returns a runnable that first sets up a mock guardian an then runs it.
-func mockGuardianRunnable(t testing.TB, gs []*mockGuardian, mockGuardianIndex uint, obsDb mock.ObservationDb, informOnNewVAAs bool) supervisor.Runnable {
+func mockGuardianRunnable(t testing.TB, mockGuardianIndex uint, prms mockGuardianRunnableParams) supervisor.Runnable {
 	t.Helper()
 	return func(ctx context.Context) error {
 		// Create a sub-context with cancel function that we can pass to G.run.
@@ -202,60 +211,20 @@ func mockGuardianRunnable(t testing.TB, gs []*mockGuardian, mockGuardianIndex ui
 		// setup db
 		db := db.OpenDb(nil, nil)
 		defer db.Close()
-		gs[mockGuardianIndex].db = db
 
-		// set environment
-		env := common.GoTest
-
-		// setup a mock watcher
-		var watcherConfigs = []watchers.WatcherConfig{
-			&mock.WatcherConfig{
-				NetworkID:        "mock",
-				ChainID:          vaa.ChainIDSolana,
-				MockObservationC: gs[mockGuardianIndex].MockObservationC,
-				MockSetC:         gs[mockGuardianIndex].MockSetC,
-				ObservationDb:    obsDb,
-			},
-		}
-
-		// configure p2p
-		nodeName := fmt.Sprintf("g-%d", mockGuardianIndex)
-		networkID := "/wormhole/localdev"
-		zeroPeerId, err := libp2p_peer.IDFromPublicKey(gs[0].p2pKey.GetPublic())
+		guardianOptions, err := genMockGuardianOptions(prms.gs, mockGuardianIndex, db, prms.obsDb, prms.informOnNewVAAs)
 		if err != nil {
 			return err
 		}
-		bootstrapPeers := fmt.Sprintf("/ip4/127.0.0.1/udp/%d/quic/p2p/%s", gs[0].config.p2pPort, zeroPeerId.String())
 
-		// configure adminservice
-		rpcMap := make(map[string]string)
-
-		// We set this to None because we don't want to count these logs when counting the amount of logs generated per message
-		publicRpcLogDetail := common.GrpcLogDetailNone
-
-		cfg := gs[mockGuardianIndex].config
-
-		// assemble all the options
-		guardianOptions := []*GuardianOption{
-			GuardianOptionDatabase(db),
-			GuardianOptionWatchers(watcherConfigs, nil),
-			GuardianOptionNoAccountant(), // disable accountant
-			GuardianOptionGovernor(true, false, ""),
-			GuardianOptionGatewayRelayer("", nil), // disable gateway relayer
-			GuardianOptionP2P(gs[mockGuardianIndex].p2pKey, networkID, bootstrapPeers, nodeName, informOnNewVAAs, false, cfg.p2pPort, "", 0, "", "", func() string { return "" }),
-			GuardianOptionPublicRpcSocket(cfg.publicSocket, publicRpcLogDetail),
-			GuardianOptionPublicrpcTcpService(cfg.publicRpc, publicRpcLogDetail),
-			GuardianOptionPublicWeb(cfg.publicWeb, cfg.publicSocket, "", false, ""),
-			GuardianOptionAdminService(cfg.adminSocket, nil, nil, rpcMap),
-			GuardianOptionStatusServer(fmt.Sprintf("[::]:%d", cfg.statusPort)),
-			GuardianOptionProcessor(networkID),
-			GuardianOptionTSSNetwork(fmt.Sprintf("[::]:%d", cfg.tssNetworkPort)),
+		if prms.pathToGuardianSetFile != "" {
+			guardianOptions = append(guardianOptions, GuardianOptionSetLoader(prms.pathToGuardianSetFile))
 		}
 
 		guardianNode := NewGuardianNode(
-			env,
-			gs[mockGuardianIndex].guardianSigner,
-			gs[mockGuardianIndex].tssEngine,
+			common.GoTest,
+			prms.gs[mockGuardianIndex].guardianSigner,
+			prms.gs[mockGuardianIndex].tssEngine,
 		)
 
 		if err = supervisor.Run(ctx, "g", guardianNode.Run(ctxCancel, guardianOptions...)); err != nil {
@@ -268,6 +237,57 @@ func mockGuardianRunnable(t testing.TB, gs []*mockGuardian, mockGuardianIndex ui
 
 		return nil
 	}
+}
+
+func genMockGuardianOptions(gs []*mockGuardian, mockGuardianIndex uint, db *db.Database, obsDb mock.ObservationDb, informOnNewVAAs bool) ([]*GuardianOption, error) {
+	gs[mockGuardianIndex].db = db
+
+	// setup a mock watcher
+	var watcherConfigs = []watchers.WatcherConfig{
+		&mock.WatcherConfig{
+			NetworkID:        "mock",
+			ChainID:          vaa.ChainIDSolana,
+			MockObservationC: gs[mockGuardianIndex].MockObservationC,
+			MockSetC:         gs[mockGuardianIndex].MockSetC,
+			ObservationDb:    obsDb,
+		},
+	}
+
+	// configure p2p
+	nodeName := fmt.Sprintf("g-%d", mockGuardianIndex)
+	networkID := "/wormhole/localdev"
+	zeroPeerId, err := libp2p_peer.IDFromPublicKey(gs[0].p2pKey.GetPublic())
+	if err != nil {
+		return nil, err
+	}
+	bootstrapPeers := fmt.Sprintf("/ip4/127.0.0.1/udp/%d/quic/p2p/%s", gs[0].config.p2pPort, zeroPeerId.String())
+
+	// configure adminservice
+	rpcMap := make(map[string]string)
+
+	// We set this to None because we don't want to count these logs when counting the amount of logs generated per message
+	publicRpcLogDetail := common.GrpcLogDetailNone
+
+	cfg := gs[mockGuardianIndex].config
+
+	// assemble all the options
+	guardianOptions := []*GuardianOption{
+		GuardianOptionDatabase(db),
+		GuardianOptionWatchers(watcherConfigs, nil),
+		GuardianOptionNoAccountant(), // disable accountant
+		GuardianOptionGovernor(true, false, ""),
+		GuardianOptionGatewayRelayer("", nil), // disable gateway relayer
+		GuardianOptionP2P(gs[mockGuardianIndex].p2pKey, networkID, bootstrapPeers, nodeName, informOnNewVAAs, false, cfg.p2pPort, "", 0, "", "", func() string { return "" }),
+		GuardianOptionPublicRpcSocket(cfg.publicSocket, publicRpcLogDetail),
+		GuardianOptionPublicrpcTcpService(cfg.publicRpc, publicRpcLogDetail),
+		GuardianOptionPublicWeb(cfg.publicWeb, cfg.publicSocket, "", false, ""),
+		GuardianOptionAdminService(cfg.adminSocket, nil, nil, rpcMap),
+		GuardianOptionStatusServer(fmt.Sprintf("[::]:%d", cfg.statusPort)),
+		GuardianOptionProcessor(networkID),
+		GuardianOptionTSSNetwork(fmt.Sprintf("[::]:%d", cfg.tssNetworkPort)),
+	}
+
+	return guardianOptions, nil
 }
 
 // setupLogsCapture is a helper function for making a zap logger/observer combination for testing that certain logs have been made
@@ -719,7 +739,12 @@ func runConsensusTests(t *testing.T, testCases []testCase, numGuardians int, inf
 
 		// run the guardians
 		for i := 0; i < numGuardians; i++ {
-			gRun := mockGuardianRunnable(t, gs, uint(i), obsDb, informOnNewVAAs)
+			gRun := mockGuardianRunnable(t, uint(i), mockGuardianRunnableParams{
+				gs:              gs,
+				obsDb:           obsDb,
+				informOnNewVAAs: informOnNewVAAs,
+			})
+
 			err := supervisor.Run(ctx, fmt.Sprintf("g-%d", i), gRun)
 			if i == 0 && numGuardians > 1 {
 				time.Sleep(time.Second) // give the bootstrap guardian some time to start up
@@ -1282,7 +1307,12 @@ func runConsensusBenchmark(t *testing.B, name string, numGuardians int, numMessa
 
 			// run the guardians
 			for i := 0; i < numGuardians; i++ {
-				gRun := mockGuardianRunnable(t, gs, uint(i), obsDb, false)
+				gRun := mockGuardianRunnable(t, uint(i), mockGuardianRunnableParams{
+					gs:              gs,
+					obsDb:           obsDb,
+					informOnNewVAAs: false,
+				})
+
 				err := supervisor.Run(ctx, fmt.Sprintf("g-%d", i), gRun)
 				if i == 0 && numGuardians > 1 {
 					time.Sleep(time.Second) // give the bootstrap guardian some time to start up
@@ -1446,4 +1476,82 @@ func TestTssCorrectRun(t *testing.T) {
 	}
 
 	runConsensusTests(t, testCases, guardians, true)
+}
+
+func TestLoadGuardianSet(t *testing.T) {
+	const testTimeout = time.Second * 15
+	const adminRpcGuardianIndex uint = 0 // we will query this guardian's adminRpc
+	testId := getTestId()
+
+	// Test's main lifecycle context.
+	rootCtx, rootCtxCancel := context.WithTimeout(context.Background(), testTimeout)
+	defer rootCtxCancel()
+
+	zapLogger, observer, _ := setupLogsCapture(t)
+
+	numGuardians := 1
+
+	supervisor.New(rootCtx, zapLogger, func(ctx context.Context) error {
+		gs := newMockGuardianSet(t, testId, numGuardians)
+
+		// create guardianset with reverse order so we can test the loading of the guardian set
+		pkeys := make([]eth_common.Address, numGuardians)
+		for i := range numGuardians {
+			// reverse order
+			pkeys[(numGuardians-1)-i] = eth_crypto.PubkeyToAddress(gs[i].guardianSigner.PublicKey(context.Background()))
+		}
+
+		bts, err := common.NewGuardianSet(pkeys, 0).MarshalBinary()
+		require.NoError(t, err)
+
+		// dump into tmp file
+		tmpFile, err := os.CreateTemp("", "guardian-set")
+		require.NoError(t, err)
+		defer os.Remove(tmpFile.Name())
+		defer tmpFile.Close()
+
+		n, err := tmpFile.Write(bts)
+		if err != nil || n != len(bts) {
+			t.Fatalf("failed to write to temp file: %v", err)
+		}
+
+		obsDb := makeObsDb(nil)
+
+		innerCtx, innerCncl := context.WithCancel(ctx)
+		defer innerCncl()
+
+		// run the guardians
+		for i := 0; i < numGuardians; i++ {
+			mockGuardianIndex := uint(i)
+			gRun := mockGuardianRunnable(t, mockGuardianIndex, mockGuardianRunnableParams{
+				gs:                    gs,
+				obsDb:                 obsDb,
+				informOnNewVAAs:       false,
+				pathToGuardianSetFile: tmpFile.Name(),
+			})
+
+			err := supervisor.Run(innerCtx, fmt.Sprintf("g-%d", i), gRun)
+			assert.NoError(t, err)
+
+			if i == 0 && numGuardians > 1 {
+				time.Sleep(time.Second) // give the bootstrap guardian some time to start up
+			}
+		}
+
+		logger.Info("All Guardians initiated.")
+		supervisor.Signal(ctx, supervisor.SignalHealthy)
+
+		time.Sleep(testTimeout / 2)
+
+		innerCncl()
+		require.GreaterOrEqual(t, numGuardians, observer.FilterMessage("guardian set updated").Len())
+		time.Sleep(time.Second * 3) // adding wait to ensure all guardians have direct connections for TSS.
+
+		return nil
+	},
+		supervisor.WithPropagatePanic)
+
+	<-rootCtx.Done()
+	// check that the processor changes the GST.
+	time.Sleep(time.Second * 1) // 1s is needed to gracefully shutdown BadgerDB
 }
