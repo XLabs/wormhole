@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -79,6 +80,23 @@ func NewGuardianSet(keys []common.Address, index uint32) *GuardianSet {
 		quorum: vaa.CalculateQuorum(len(keys)),
 		keyMap: keyMap,
 	}
+}
+
+func (g *GuardianSet) UnmarshalBinary(data []byte) error {
+	if err := json.Unmarshal(data, g); err != nil {
+		return fmt.Errorf("guardian set: %w", err)
+	}
+
+	g.keyMap = make(map[common.Address]int)
+	for idx, key := range g.Keys {
+		g.keyMap[key] = idx
+	}
+
+	return nil
+}
+
+func (g *GuardianSet) MarshalBinary() ([]byte, error) {
+	return json.Marshal(g)
 }
 
 func (g *GuardianSet) KeysAsHexStrings() []string {

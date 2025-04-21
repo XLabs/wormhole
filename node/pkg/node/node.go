@@ -203,8 +203,6 @@ func (g *G) Run(rootCtxCancel context.CancelFunc, options ...*GuardianOption) su
 				logger.Fatal("error starting runnablesWithScissors", zap.Error(err))
 			}
 		}
-		// TODO: Load guardianSetState.
-		// Load this guardian Keypair accoroding to the guardian index.
 
 		if g.tssEngine != nil {
 			logger.Info("Starting TSS engine")

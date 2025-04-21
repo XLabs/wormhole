@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -647,14 +646,14 @@ func GuardianOptionSetLoader(path string) *GuardianOption {
 				return fmt.Errorf("can load guardian set only if setC is configured")
 			}
 
-			gs := &common.GuardianSet{}
-			jsonGs, err := os.ReadFile(path)
+			gsBytes, err := os.ReadFile(path)
 			if err != nil {
 				return fmt.Errorf("failed to read guardian set file: %w", err)
 			}
 
-			if err := json.Unmarshal(jsonGs, gs); err != nil {
-				return fmt.Errorf("failed to unmarshal guardian set file: %w", err)
+			gs := &common.GuardianSet{}
+			if err := gs.UnmarshalBinary(gsBytes); err != nil {
+				return fmt.Errorf("failed to unmarshal guardian set: %w", err)
 			}
 
 			// figuring out the index of this guardian
