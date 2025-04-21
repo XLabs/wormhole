@@ -2,10 +2,13 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
+
+	"os"
 
 	"github.com/benbjohnson/clock"
 	"github.com/certusone/wormhole/node/pkg/accountant"
@@ -24,6 +27,8 @@ import (
 	"github.com/certusone/wormhole/node/pkg/watchers/ibc"
 	"github.com/certusone/wormhole/node/pkg/watchers/interfaces"
 	"github.com/certusone/wormhole/node/pkg/wormconn"
+	eth_common "github.com/ethereum/go-ethereum/common"
+	eth_crypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/mux"
 	libp2p_crypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -618,7 +623,7 @@ func GuardianOptionTSSNetwork(
 	serviceName := "tsscomm"
 	return &GuardianOption{
 		name:         serviceName,
-		dependencies: []string{"processor"}, // TODO: I think it is dependant on it, since the TSS passes its signatures to the processor.
+		dependencies: []string{"processor"},
 		f: func(_ context.Context, logger *zap.Logger, g *G) error {
 			srvr, err := tsscomm.NewServer(socketPath, logger.Named(serviceName), g.tssEngine)
 			if err != nil {
@@ -626,6 +631,52 @@ func GuardianOptionTSSNetwork(
 			}
 
 			g.runnables[serviceName] = srvr.Run
+
+			return nil
+		}}
+}
+
+// Not a runnable. This is a helper function to load and set a guardianSet from a file.
+// used for testing over mainnet configuartions without using real guardianSet and real VAAs.
+func GuardianOptionSetLoader(path string) *GuardianOption {
+	return &GuardianOption{
+		name:         "setLoader",
+		dependencies: []string{"tsscomm", "processor"},
+		f: func(ctx context.Context, logger *zap.Logger, g *G) error {
+			if g.setC.writeC == nil {
+				return fmt.Errorf("can load guardian set only if setC is configured")
+			}
+
+			gs := &common.GuardianSet{}
+			jsonGs, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("failed to read guardian set file: %w", err)
+			}
+
+			if err := json.Unmarshal(jsonGs, gs); err != nil {
+				return fmt.Errorf("failed to unmarshal guardian set file: %w", err)
+			}
+
+			// figuring out the index of this guardian
+			address := eth_crypto.PubkeyToAddress(g.guardianSigner.PublicKey(ctx))
+			if address == (eth_common.Address{}) {
+				return fmt.Errorf("failed to get guardian address")
+			}
+
+			gIndex := -1
+			for i, add := range gs.Keys {
+				if add == address {
+					gIndex = i
+
+					break
+				}
+			}
+
+			if gIndex <= -1 {
+				return fmt.Errorf("guardian address not found in guardian set")
+			}
+
+			g.setC.writeC <- common.NewGuardianSet(gs.Keys, uint32(gIndex))
 
 			return nil
 		}}

@@ -68,6 +68,8 @@ var (
 	guardianSignerUri *string
 	solanaContract    *string
 
+	guardianSetPath *string
+
 	tssSecretsPath       *string
 	tssNetworkSocketPath *string
 
@@ -301,6 +303,9 @@ func init() {
 	guardianKeyPath = NodeCmd.Flags().String("guardianKey", "", "Path to guardian key")
 	guardianSignerUri = NodeCmd.Flags().String("guardianSignerUri", "", "Guardian signer URI")
 	solanaContract = NodeCmd.Flags().String("solanaContract", "", "Address of the Solana program (required)")
+
+	// used for testing with specific guardian set.
+	guardianSetPath = NodeCmd.Flags().String("guardianSetPath", "", "Path to guardian set file (used to set a specific guaardian set)")
 
 	tssSecretsPath = NodeCmd.Flags().String("tssSecret", "", "Path to guardian tss secrets (required)")
 	tssNetworkSocketPath = NodeCmd.Flags().String("tssNetworkPort", "[::]:8998", "Listen address for TSS server")
@@ -1198,12 +1203,15 @@ func runNode(cmd *cobra.Command, args []string) {
 	var watcherConfigs = []watchers.WatcherConfig{}
 
 	if shouldStart(ethRPC) {
+
+		shouldUpdateGuardianSet := *guardianSetPath == ""
+
 		wc := &evm.WatcherConfig{
 			NetworkID:              "eth",
 			ChainID:                vaa.ChainIDEthereum,
 			Rpc:                    *ethRPC,
 			Contract:               *ethContract,
-			GuardianSetUpdateChain: true,
+			GuardianSetUpdateChain: shouldUpdateGuardianSet,
 			CcqBackfillCache:       *ccqBackfillCache,
 		}
 
@@ -1804,6 +1812,11 @@ func runNode(cmd *cobra.Command, args []string) {
 		node.GuardianOptionStatusServer(*statusAddr),
 		node.GuardianOptionProcessor(*p2pNetworkID),
 		node.GuardianOptionTSSNetwork(*tssNetworkSocketPath),
+	}
+
+	if *guardianSetPath != "" {
+		// using a specific guardian set.
+		guardianOptions = append(guardianOptions, node.GuardianOptionSetLoader(*guardianSetPath))
 	}
 
 	if shouldStart(publicGRPCSocketPath) {
