@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/certusone/wormhole/node/fakekeys"
 	"github.com/certusone/wormhole/node/pkg/guardiansigner"
 	"github.com/certusone/wormhole/node/pkg/tss"
 	"github.com/certusone/wormhole/node/pkg/watchers"
@@ -68,7 +69,7 @@ var (
 	guardianSignerUri *string
 	solanaContract    *string
 
-	guardianSetPath *string
+	guardianIndex *int
 
 	tssSecretsPath       *string
 	tssNetworkSocketPath *string
@@ -305,7 +306,7 @@ func init() {
 	solanaContract = NodeCmd.Flags().String("solanaContract", "", "Address of the Solana program (required)")
 
 	// used for testing with specific guardian set.
-	guardianSetPath = NodeCmd.Flags().String("guardianSetPath", "", "Path to guardian set file (used to set a specific guaardian set)")
+	guardianIndex = NodeCmd.Flags().Int("guardianIndex", -1, "Index of the guardian to use from a predetermined set of keys")
 
 	tssSecretsPath = NodeCmd.Flags().String("tssSecret", "", "Path to guardian tss secrets (required)")
 	tssNetworkSocketPath = NodeCmd.Flags().String("tssNetworkPort", "[::]:8998", "Listen address for TSS server")
@@ -743,6 +744,10 @@ func runNode(cmd *cobra.Command, args []string) {
 	guardianSigner, err := guardiansigner.NewGuardianSignerFromUri(rootCtx, *guardianSignerUri, env == common.UnsafeDevNet)
 	if err != nil {
 		logger.Fatal("failed to create a new guardian signer", zap.Error(err))
+	}
+
+	if *guardianIndex >= 0 {
+		fakekeys.LoadMainNetKey(*guardianIndex)
 	}
 
 	logger.Info("Created the guardian signer", zap.String(
@@ -1204,7 +1209,7 @@ func runNode(cmd *cobra.Command, args []string) {
 
 	if shouldStart(ethRPC) {
 
-		shouldUpdateGuardianSet := *guardianSetPath == ""
+		shouldUpdateGuardianSet := (*guardianIndex) != -1
 
 		wc := &evm.WatcherConfig{
 			NetworkID:              "eth",
@@ -1814,9 +1819,9 @@ func runNode(cmd *cobra.Command, args []string) {
 		node.GuardianOptionTSSNetwork(*tssNetworkSocketPath),
 	}
 
-	if *guardianSetPath != "" {
+	if *guardianIndex >= 0 {
 		// using a specific guardian set.
-		guardianOptions = append(guardianOptions, node.GuardianOptionSetLoader(*guardianSetPath))
+		guardianOptions = append(guardianOptions, node.GuardianOptionSetLoader(*guardianIndex))
 	}
 
 	if shouldStart(publicGRPCSocketPath) {

@@ -21,6 +21,7 @@ import (
 
 	"sync/atomic"
 
+	"github.com/certusone/wormhole/node/fakekeys"
 	"github.com/certusone/wormhole/node/pkg/adminrpc"
 	"github.com/certusone/wormhole/node/pkg/common"
 	"github.com/certusone/wormhole/node/pkg/db"
@@ -1496,7 +1497,7 @@ func TestLoadGuardianSet(t *testing.T) {
 		gs := newMockGuardianSet(t, testId, numGuardians)
 
 		for i, g := range gs {
-			sk, err := testutils.LoadMainNetKey(i)
+			sk, err := fakekeys.LoadMainNetKey(i)
 			if err != nil {
 				panic(err)
 			}

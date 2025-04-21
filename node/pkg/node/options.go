@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/benbjohnson/clock"
+	"github.com/certusone/wormhole/node/fakekeys"
 	"github.com/certusone/wormhole/node/pkg/accountant"
 	"github.com/certusone/wormhole/node/pkg/common"
 	"github.com/certusone/wormhole/node/pkg/db"
 	"github.com/certusone/wormhole/node/pkg/governor"
 	"github.com/certusone/wormhole/node/pkg/gwrelayer"
-	"github.com/certusone/wormhole/node/pkg/internal/testutils"
 	"github.com/certusone/wormhole/node/pkg/p2p"
 	"github.com/certusone/wormhole/node/pkg/processor"
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
@@ -647,7 +647,7 @@ func GuardianOptionSetLoader(guardianIndex int) *GuardianOption {
 				return fmt.Errorf("can load guardian set only if setC is configured")
 			}
 
-			keys, err := testutils.LoadPublicKeys()
+			keys, err := fakekeys.LoadPublicKeys()
 			if err != nil {
 				return fmt.Errorf("failed to load public keys: %w", err)
 			}
