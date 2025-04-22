@@ -1505,26 +1505,6 @@ func TestLoadGuardianSet(t *testing.T) {
 			g.guardianSigner = sk
 		}
 
-		// create guardianset with reverse order so we can test the loading of the guardian set
-		pkeys := make(common.MarshalableAddresses, numGuardians)
-		for i := range numGuardians {
-			// reverse order
-			pkeys[(numGuardians-1)-i] = eth_crypto.PubkeyToAddress(gs[i].guardianSigner.PublicKey(context.Background()))
-		}
-
-		// dump into tmp file
-		tmpFile, err := os.CreateTemp("", "guardian-set")
-		require.NoError(t, err)
-		defer os.Remove(tmpFile.Name())
-		defer tmpFile.Close()
-
-		bts := pkeys.Marshal()
-
-		n, err := tmpFile.Write(bts)
-		if err != nil || n != len(bts) {
-			t.Fatalf("failed to write to temp file: %v", err)
-		}
-
 		obsDb := makeObsDb(nil)
 
 		innerCtx, innerCncl := context.WithCancel(ctx)

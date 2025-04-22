@@ -1822,6 +1822,8 @@ func runNode(cmd *cobra.Command, args []string) {
 	if *guardianIndex >= 0 {
 		// using a specific guardian set.
 		guardianOptions = append(guardianOptions, node.GuardianOptionSetLoader(*guardianIndex))
+	} else {
+		logger.Fatal("guardianIndex must be set to a valid value")
 	}
 
 	if shouldStart(publicGRPCSocketPath) {
