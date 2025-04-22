@@ -1212,14 +1212,12 @@ func runNode(cmd *cobra.Command, args []string) {
 
 	if shouldStart(ethRPC) {
 
-		shouldUpdateGuardianSet := (*guardianIndex) != -1
-
 		wc := &evm.WatcherConfig{
 			NetworkID:              "eth",
 			ChainID:                vaa.ChainIDEthereum,
 			Rpc:                    *ethRPC,
 			Contract:               *ethContract,
-			GuardianSetUpdateChain: shouldUpdateGuardianSet,
+			GuardianSetUpdateChain: false,
 			CcqBackfillCache:       *ccqBackfillCache,
 		}
 
