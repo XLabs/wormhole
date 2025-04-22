@@ -1,0 +1,246 @@
+package playground
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/json"
+	"fmt"
+	"math/big"
+	"net"
+	"os"
+	"os/exec"
+	"path"
+	"strings"
+	"testing"
+	"time"
+
+	engine "github.com/certusone/wormhole/node/pkg/tss"
+	"github.com/certusone/wormhole/node/pkg/tss/internal"
+)
+
+type Identifier struct {
+	Hostname  string
+	SecretKey engine.PEM // SecretKey is the secret key of the node. This is used to sign messages.
+	TlsX509   engine.PEM // PEM Encoded (see certs.go). Note, you must have the private key of this cert later.
+}
+
+type LKGConfig struct {
+	NumParticipants int
+	WantedThreshold int // should be non inclusive. That is, if you have n=19,f=6, then threshold=12 (13 guardians needed to sign).
+
+	GuardianSpecifics []GuardianSpecifics
+}
+
+type GuardianSpecifics struct {
+	Identifier         Identifier
+	WhereToSaveSecrets string // where to save the secrets of this guardian.
+}
+
+// create these from scrath, then store it into a single file.
+// json should be able to read it.
+
+var hostnames = []string{
+	"t-gcp-threshsignnet-asia-01.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-asia-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-asia-03.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-asia-04.gcp.testnet.xlabs.xyz",
+
+	"t-gcp-threshsignnet-usw-01.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-usw-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-usw-03.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-usw-04.gcp.testnet.xlabs.xyz",
+
+	"t-gcp-threshsignnet-use-01.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-use-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-use-03.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-use-04.gcp.testnet.xlabs.xyz",
+
+	"t-gcp-threshsignnet-euc-01.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euc-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euc-03.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euc-04.gcp.testnet.xlabs.xyz",
+
+	"t-gcp-threshsignnet-euw-01.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euw-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euw-03.gcp.testnet.xlabs.xyz",
+}
+
+const saveFile = "../lkg/lkg.json"
+
+func TestCreateLKGConfigs(t *testing.T) {
+	CreateLKGConfigs(t)
+}
+
+func TestShoveKeysToPosition(t *testing.T) {
+	shoveKeys(t)
+}
+
+func TestScpToServer(t *testing.T) {
+	sendToServers(t)
+	// scp -i ~/.ssh/id_ed25519 asia-01/secrets.json jonathan@%v:~
+}
+
+func sendToServers(t *testing.T) {
+	cnfg := loadConfigs(t)
+
+	for i := range cnfg.GuardianSpecifics {
+		guardian := cnfg.GuardianSpecifics[i]
+		if guardian.WhereToSaveSecrets == "" {
+			t.Fatalf("guardian %d has empty WhereToSaveSecrets", i)
+		}
+
+		localSecretsPath := path.Join("..", "setkey", "keys", guardian.WhereToSaveSecrets, "secrets.json")
+		cmd := exec.Command("scp", "-i", "~/.ssh/id_ed25519", localSecretsPath, fmt.Sprintf("jonathan@%s:~", guardian.Identifier.Hostname))
+
+		fmt.Println(cmd.String())
+		// scp -i ~/.ssh/id_ed25519 <localpath> jonathan@t-gcp-threshsignnet-asia-01.gcp.testnet.xlabs.xyz:~
+	}
+}
+
+func loadConfigs(t *testing.T) LKGConfig {
+	bts, err := os.ReadFile(saveFile)
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	var cnfg LKGConfig
+	if err := json.Unmarshal(bts, &cnfg); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+	return cnfg
+}
+
+func shoveKeys(t *testing.T) {
+	cnfg := loadConfigs(t)
+	// TODO
+	// var secretkeypath = flag.String("key", "", "path to the secret key PEM file")
+	// var lkgSecrets = flag.String("lkg", "", "path to the LKG secrets json file")
+
+	for i := range cnfg.GuardianSpecifics {
+		guardian := cnfg.GuardianSpecifics[i]
+		if guardian.WhereToSaveSecrets == "" {
+			t.Fatalf("guardian %d has empty WhereToSaveSecrets", i)
+		}
+
+		_path := path.Join("..", "setkey", "keys", guardian.WhereToSaveSecrets)
+
+		keypath := path.Join(_path, "key.pem")
+		if err := os.WriteFile(
+			keypath,
+			guardian.Identifier.SecretKey,
+			0644,
+		); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+
+		lkgpath := path.Join(_path, "secrets.json")
+
+		args := []string{
+			"run", "../setkey",
+			"--key=" + keypath,
+			"--lkg=" + lkgpath,
+		}
+
+		cmd := exec.Command("go", args...)
+
+		// Link the binary's stdout/stderr to your Go program's output
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to run command: %v", err)
+		}
+	}
+
+	// setkey.Main([]string{
+	// 	"-key", "../lkg/lkg.json",
+	// 	"-lkg", saveFile,
+	// })
+}
+
+func CreateLKGConfigs(t *testing.T) {
+	if _, err := os.Stat(saveFile); err == nil {
+		t.Fatalf("lkg.json already exists in lkg dir")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cnfg := LKGConfig{
+		NumParticipants:   len(hostnames),
+		WantedThreshold:   2*(len(hostnames)/3) + 1,
+		GuardianSpecifics: make([]GuardianSpecifics, len(hostnames)),
+	}
+
+	for i, hostname := range hostnames {
+		sk, cert := createTLSCert(hostname)
+		cnfg.GuardianSpecifics[i] = GuardianSpecifics{
+			Identifier: Identifier{
+				Hostname:  hostname,
+				SecretKey: internal.PrivateKeyToPem(sk),
+				TlsX509:   cert,
+			},
+			WhereToSaveSecrets: extractRegion(hostname),
+		}
+	}
+
+	bts, err := json.MarshalIndent(cnfg, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+
+	if err := os.WriteFile(saveFile, bts, 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+}
+
+func extractRegion(domain string) string {
+	parts := strings.Split(domain, "-")
+	if len(parts) < 5 {
+		panic("unexpected format")
+	}
+
+	regionPart := parts[3]               // "euw"
+	rest := strings.Join(parts[4:], "-") // "01.gcp.testnet.xlabs.xyz"
+	dotParts := strings.Split(rest, ".")
+	if len(dotParts) == 0 {
+		panic("unexpected format after region")
+	}
+
+	return fmt.Sprintf("%s-%s", regionPart, dotParts[0])
+}
+
+func createTLSCert(hostname string) (*ecdsa.PrivateKey, engine.PEM) {
+	cert := createX509Cert(hostname)
+	sk, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
+	signedCert := internal.NewTLSCredentials(sk, cert)
+	return sk, internal.CertToPem(signedCert)
+
+}
+func createX509Cert(hostname string) *x509.Certificate {
+	// using random serial number
+	var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
+
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		panic(err)
+	}
+
+	tmpl := x509.Certificate{
+		SerialNumber:          serialNumber,
+		Subject:               pkix.Name{Organization: []string{"tsscomm"}},
+		SignatureAlgorithm:    x509.ECDSAWithSHA256,
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Hour * 24 * 366 * 40), // valid for > 40 years used for tests...
+		BasicConstraintsValid: true,
+
+		DNSNames:    []string{hostname, "localhost"},
+		IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1)},
+	}
+	return &tmpl
+}
