@@ -92,19 +92,58 @@ func sendToServers(t *testing.T) {
 		t.Fatal("could not grab file due to runtime.Caller(0) failure")
 	}
 
+	errs := make(chan error, len(cnfg.GuardianSpecifics))
+
 	workdir := path.Join(path.Dir(file), "..", "setkey", "keys")
+	fmt.Println("sending files...")
 	for i := range cnfg.GuardianSpecifics {
-		guardian := cnfg.GuardianSpecifics[i]
-		if guardian.WhereToSaveSecrets == "" {
-			t.Fatalf("guardian %d has empty WhereToSaveSecrets", i)
-		}
+		go func(i int) {
 
-		localSecretsPath := path.Join(workdir, guardian.WhereToSaveSecrets, "secrets.json")
-		cmd := exec.Command("scp", "-i", "~/.ssh/id_ed25519", localSecretsPath, fmt.Sprintf("jonathan@%s:~", guardian.Identifier.Hostname))
+			guardian := cnfg.GuardianSpecifics[i]
+			if guardian.WhereToSaveSecrets == "" {
+				errs <- fmt.Errorf("guardian %d has empty WhereToSaveSecrets", i)
 
-		fmt.Println(cmd.String())
+				return
+			}
+
+			localSecretsPath := path.Join(workdir, guardian.WhereToSaveSecrets, "secrets.json")
+			cmd := exec.Command("scp", "-i", "~/.ssh/id_ed25519", localSecretsPath, fmt.Sprintf("jonathan@%s:~", guardian.Identifier.Hostname))
+
+			// fmt.Println(cmd.String())
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			if err := cmd.Run(); err != nil {
+				errs <- fmt.Errorf("failed to run command: %v", err)
+
+				return
+			}
+			fmt.Printf("sent %s to %s\n", localSecretsPath, guardian.Identifier.Hostname)
+
+			errs <- nil
+		}(i)
 		// scp -i ~/.ssh/id_ed25519 <localpath> jonathan@t-gcp-threshsignnet-asia-01.gcp.testnet.xlabs.xyz:~
 	}
+
+	timer := time.NewTimer(time.Second * 90)
+	defer timer.Stop()
+
+	for i := 0; i < len(cnfg.GuardianSpecifics); i++ {
+		select {
+		case err := <-errs:
+			if err != nil {
+				t.Fatalf("failed to send file: %v", err)
+
+				return
+			}
+		case <-timer.C:
+			t.Fatalf("timed out waiting for file transfer")
+
+			return
+		}
+	}
+
+	fmt.Println("done sending files")
 }
 
 func loadConfigs(t *testing.T) LKGConfig {
