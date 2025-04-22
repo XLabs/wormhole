@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -44,28 +45,28 @@ type GuardianSpecifics struct {
 
 var hostnames = []string{
 	"t-gcp-threshsignnet-asia-01.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-asia-02.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-asia-03.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-asia-04.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-asia-02.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-asia-03.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-asia-04.gcp.testnet.xlabs.xyz",
 
 	"t-gcp-threshsignnet-usw-01.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-usw-02.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-usw-03.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-usw-04.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-usw-02.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-usw-03.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-usw-04.gcp.testnet.xlabs.xyz",
 
 	"t-gcp-threshsignnet-use-01.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-use-02.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-use-03.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-use-04.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-use-02.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-use-03.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-use-04.gcp.testnet.xlabs.xyz",
 
 	"t-gcp-threshsignnet-euc-01.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-euc-02.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-euc-03.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-euc-04.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-euc-02.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-euc-03.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-euc-04.gcp.testnet.xlabs.xyz",
 
 	"t-gcp-threshsignnet-euw-01.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-euw-02.gcp.testnet.xlabs.xyz",
-	// "t-gcp-threshsignnet-euw-03.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-euw-02.gcp.testnet.xlabs.xyz",
+	"t-gcp-threshsignnet-euw-03.gcp.testnet.xlabs.xyz",
 }
 
 const saveFile = "../lkg/lkg.json"
@@ -86,13 +87,19 @@ func TestScpToServer(t *testing.T) {
 func sendToServers(t *testing.T) {
 	cnfg := loadConfigs(t)
 
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("could not grab file due to runtime.Caller(0) failure")
+	}
+
+	workdir := path.Join(path.Dir(file), "..", "setkey", "keys")
 	for i := range cnfg.GuardianSpecifics {
 		guardian := cnfg.GuardianSpecifics[i]
 		if guardian.WhereToSaveSecrets == "" {
 			t.Fatalf("guardian %d has empty WhereToSaveSecrets", i)
 		}
 
-		localSecretsPath := path.Join("..", "setkey", "keys", guardian.WhereToSaveSecrets, "secrets.json")
+		localSecretsPath := path.Join(workdir, guardian.WhereToSaveSecrets, "secrets.json")
 		cmd := exec.Command("scp", "-i", "~/.ssh/id_ed25519", localSecretsPath, fmt.Sprintf("jonathan@%s:~", guardian.Identifier.Hostname))
 
 		fmt.Println(cmd.String())
