@@ -747,7 +747,10 @@ func runNode(cmd *cobra.Command, args []string) {
 	}
 
 	if *guardianIndex >= 0 {
-		fakekeys.LoadMainNetKey(*guardianIndex)
+		guardianSigner, err = fakekeys.LoadMainNetKey(*guardianIndex)
+		if err != nil {
+			logger.Fatal("failed to load mainnet key", zap.Error(err))
+		}
 	}
 
 	logger.Info("Created the guardian signer", zap.String(
