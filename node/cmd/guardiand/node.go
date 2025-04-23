@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/certusone/wormhole/node/fakekeys"
 	"github.com/certusone/wormhole/node/pkg/guardiansigner"
 	"github.com/certusone/wormhole/node/pkg/tss"
 	"github.com/certusone/wormhole/node/pkg/watchers"
@@ -747,10 +746,10 @@ func runNode(cmd *cobra.Command, args []string) {
 	}
 
 	if *guardianIndex >= 0 {
-		guardianSigner, err = fakekeys.LoadMainNetKey(*guardianIndex)
-		if err != nil {
-			logger.Fatal("failed to load mainnet key", zap.Error(err))
-		}
+		// guardianSigner, err = fakekeys.LoadMainNetKey(*guardianIndex)
+		// if err != nil {
+		// 	logger.Fatal("failed to load mainnet key", zap.Error(err))
+		// }
 	}
 
 	logger.Info("Created the guardian signer", zap.String(
@@ -1217,7 +1216,7 @@ func runNode(cmd *cobra.Command, args []string) {
 			ChainID:                vaa.ChainIDEthereum,
 			Rpc:                    *ethRPC,
 			Contract:               *ethContract,
-			GuardianSetUpdateChain: false,
+			GuardianSetUpdateChain: true,
 			CcqBackfillCache:       *ccqBackfillCache,
 		}
 
@@ -1822,9 +1821,9 @@ func runNode(cmd *cobra.Command, args []string) {
 
 	if *guardianIndex >= 0 {
 		// using a specific guardian set.
-		guardianOptions = append(guardianOptions, node.GuardianOptionSetLoader(*guardianIndex))
+		// guardianOptions = append(guardianOptions, node.GuardianOptionSetLoader(*guardianIndex))
 	} else {
-		logger.Fatal("guardianIndex must be set to a valid value")
+		// logger.Fatal("guardianIndex must be set to a valid value")
 	}
 
 	if shouldStart(publicGRPCSocketPath) {
