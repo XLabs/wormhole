@@ -30,7 +30,7 @@ func keyFile(keyIndex int) string {
 
 func TestMakeKeys(t *testing.T) {
 	// create 19 keys for mainnet, in the format expected by the guardian signer.
-	for i := range 19 {
+	for i := range 5 {
 		createKey(i)
 	}
 }
@@ -38,7 +38,7 @@ func TestMakeKeys(t *testing.T) {
 func TestMakePublicKeysFile(t *testing.T) {
 	var addresses common.MarshalableAddresses
 	// addresses.Unmarshal("test.mainnet.19nodes.addresses")
-	for i := range 19 {
+	for i := range 5 {
 		filename := keyFile(i)
 
 		fs, err := guardiansigner.NewFileSigner(context.Background(), false, filename)

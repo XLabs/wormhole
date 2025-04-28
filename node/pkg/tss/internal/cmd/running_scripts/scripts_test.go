@@ -45,31 +45,32 @@ type GuardianSpecifics struct {
 
 var hostnames = []string{
 	"t-gcp-threshsignnet-asia-01.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-asia-02.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-asia-03.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-asia-04.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-asia-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-asia-03.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-asia-04.gcp.testnet.xlabs.xyz",
 
 	"t-gcp-threshsignnet-usw-01.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-usw-02.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-usw-03.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-usw-04.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-usw-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-usw-03.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-usw-04.gcp.testnet.xlabs.xyz",
 
 	"t-gcp-threshsignnet-use-01.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-use-02.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-use-03.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-use-04.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-use-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-use-03.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-use-04.gcp.testnet.xlabs.xyz",
 
 	"t-gcp-threshsignnet-euc-01.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-euc-02.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-euc-03.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-euc-04.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euc-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euc-03.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euc-04.gcp.testnet.xlabs.xyz",
 
 	"t-gcp-threshsignnet-euw-01.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-euw-02.gcp.testnet.xlabs.xyz",
-	"t-gcp-threshsignnet-euw-03.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euw-02.gcp.testnet.xlabs.xyz",
+	// "t-gcp-threshsignnet-euw-03.gcp.testnet.xlabs.xyz",
 }
 
 const saveFile = "../lkg/lkg.json"
+const specificKeysFolder = "5-servers"
 
 func TestCreateLKGConfigs(t *testing.T) {
 	CreateLKGConfigs(t)
@@ -94,7 +95,7 @@ func sendToServers(t *testing.T) {
 
 	errs := make(chan error, len(cnfg.GuardianSpecifics))
 
-	workdir := path.Join(path.Dir(file), "..", "setkey", "keys")
+	workdir := path.Join(path.Dir(file), "..", "setkey", "keys", specificKeysFolder)
 	fmt.Println("sending files...")
 	for i := range cnfg.GuardianSpecifics {
 		go func(i int) {
@@ -170,7 +171,7 @@ func shoveKeys(t *testing.T) {
 			t.Fatalf("guardian %d has empty WhereToSaveSecrets", i)
 		}
 
-		_path := path.Join("..", "setkey", "keys", guardian.WhereToSaveSecrets)
+		_path := path.Join("..", "setkey", "keys", specificKeysFolder, guardian.WhereToSaveSecrets)
 
 		keypath := path.Join(_path, "key.pem")
 		if err := os.WriteFile(
