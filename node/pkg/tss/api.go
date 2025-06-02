@@ -2,7 +2,6 @@ package tss
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
 	"time"
@@ -11,7 +10,8 @@ import (
 	tsscommv1 "github.com/certusone/wormhole/node/pkg/proto/tsscomm/v1"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
-	"github.com/xlabs/tss-lib/v2/common"
+	"github.com/xlabs/multi-party-sig/pkg/math/curve"
+	common "github.com/xlabs/tss-common"
 )
 
 type message interface {
@@ -59,7 +59,7 @@ type Signer interface {
 	BeginAsyncThresholdSigningProtocol(vaaDigest []byte, chainID vaa.ChainID, vaaconsistency uint8) error
 	ProducedSignature() <-chan *common.SignatureData
 
-	GetPublicKey() *ecdsa.PublicKey
+	GetPublicKey() curve.Point
 	GetEthAddress() ethcommon.Address
 
 	// tells the maximal duration one might wait on a signature to be produced

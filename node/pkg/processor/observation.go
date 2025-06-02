@@ -320,13 +320,10 @@ func (p *Processor) handleInboundSignedVAAWithQuorum(m *gossipv1.SignedVAAWithQu
 		return
 	}
 
-	addresses := p.gs.Keys
-	if v.Version == vaa.TSSVaaVersion {
-		addresses = []common.Address{p.thresholdSigner.GetEthAddress()}
-	}
+	keys := p.gs.Keys
 
 	// Check if guardianSet doesn't have any keys
-	if len(addresses) == 0 {
+	if len(keys) == 0 {
 		p.logger.Warn("dropping SignedVAAWithQuorum message since we have a guardian set without keys",
 			zap.String("message_id", v.MessageID()),
 			zap.String("digest", hex.EncodeToString(v.SigningDigest().Bytes())),
@@ -335,7 +332,12 @@ func (p *Processor) handleInboundSignedVAAWithQuorum(m *gossipv1.SignedVAAWithQu
 		return
 	}
 
-	if err := v.Verify(addresses); err != nil {
+	var verificationPublic vaa.PublicKeys = keys
+	if v.Version == vaa.TSSVaaVersion {
+		verificationPublic = p.thresholdSigner.GetEthAddress()
+	}
+
+	if err := v.Verify(verificationPublic); err != nil {
 		// We format the error as part of the message so the tests can check for it.
 		p.logger.Warn(
 			"dropping SignedVAAWithQuorum message because it failed verification: "+err.Error(),

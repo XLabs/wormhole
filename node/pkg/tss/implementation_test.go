@@ -19,29 +19,24 @@ import (
 	"github.com/certusone/wormhole/node/pkg/guardiansigner"
 	"github.com/certusone/wormhole/node/pkg/internal/testutils"
 	tsscommv1 "github.com/certusone/wormhole/node/pkg/proto/tsscomm/v1"
-	"github.com/ethereum/go-ethereum/common"
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
-	tsscommon "github.com/xlabs/tss-lib/v2/common"
-	"github.com/xlabs/tss-lib/v2/ecdsa/party"
-	"github.com/xlabs/tss-lib/v2/ecdsa/signing"
-	"github.com/xlabs/tss-lib/v2/tss"
+	"github.com/xlabs/multi-party-sig/protocols/frost"
+	"github.com/xlabs/multi-party-sig/protocols/frost/sign"
+	common "github.com/xlabs/tss-common"
+	tsscommon "github.com/xlabs/tss-common"
+	"github.com/xlabs/tss-lib/v2/party"
 	"google.golang.org/protobuf/proto"
 )
 
 var (
-	unicastRounds   = []signingRound{round1Message1, round2Message}
+	unicastRounds   = []signingRound{}
 	broadcastRounds = []signingRound{
-		round1Message2,
+		round2Message,
 		round3Message,
-		round4Message,
-		round5Message,
-		round6Message,
-		round7Message,
-		round8Message,
-		round9Message,
 	}
 
 	allRounds                     = append(unicastRounds, broadcastRounds...)
@@ -49,7 +44,7 @@ var (
 	nonReportableConsistancyLevel = instantConsistencyLevel // TODO
 )
 
-func parsedIntoEcho(a *assert.Assertions, t *Engine, parsed tss.ParsedMessage) *IncomingMessage {
+func parsedIntoEcho(a *assert.Assertions, t *Engine, parsed common.ParsedMessage) *IncomingMessage {
 	payload, _, err := parsed.WireBytes()
 	a.NoError(err)
 
@@ -216,7 +211,7 @@ func load5GuardiansSetupForBroadcastChecks(a *assert.Assertions) []*Engine {
 	return engines
 }
 
-func makeHashEcho(e *Engine, parsed tss.ParsedMessage, in *IncomingMessage) *IncomingMessage {
+func makeHashEcho(e *Engine, parsed common.ParsedMessage, in *IncomingMessage) *IncomingMessage {
 	echocpy := proto.Clone(in.toBroadcastMsg()).(*tsscommv1.Echo)
 
 	outgoing := &IncomingMessage{
@@ -371,7 +366,7 @@ func TestEquivocation(t *testing.T) {
 			parsed2 := generateFakeMessageWithRandomContent(e1.Self.Pid, e2.Self.Pid, rndType, trackingId)
 
 			shouldBroadcast, deliverable, err = receiver.broadcastInspection(&deliverableMessage{&parsedTssContent{parsed2, ""}}, parsedIntoEcho(a, e2, parsed2))
-			a.ErrorAs(err, &ErrEquivicatingGuardian)
+			a.ErrorContains(err, "equivication")
 			a.False(shouldBroadcast)
 			a.Nil(deliverable)
 
@@ -385,7 +380,7 @@ func TestEquivocation(t *testing.T) {
 				Payload[0] += 1
 			// now echoer is equivicating (change content, but of some seen message):
 			_, _, err = receiver.broadcastInspection(&deliverableMessage{&parsedTssContent{parsed1, ""}}, equvicatingEchoerMessage)
-			a.ErrorContains(err, e2.Self.Pid.Id)
+			a.ErrorContains(err, e2.Self.Hostname)
 		}
 	})
 
@@ -463,9 +458,9 @@ func TestBadInputs(t *testing.T) {
 			_, _, err := e1.broadcastInspection(&deliverableMessage{&parsedTssContent{parsed1, ""}}, echo)
 			a.ErrorIs(err, ErrInvalidSignature)
 
-			if rnd == round1Message1 || rnd == round2Message {
-				continue
-			}
+			// if rnd == round1Message1 || rnd == round2Message {
+			// 	continue
+			// }
 
 			echo.setSource(e1.Self)
 			err = e1.handleIncomingTssMessage(echo)
@@ -774,19 +769,22 @@ func TestCleanup(t *testing.T) {
 type badtssMessage struct {
 }
 
-func (b *badtssMessage) GetFrom() *tss.PartyID         { panic("unimplemented") }
-func (b *badtssMessage) GetTo() []*tss.PartyID         { panic("unimplemented") }
-func (b *badtssMessage) IsBroadcast() bool             { panic("unimplemented") }
-func (b *badtssMessage) IsToOldAndNewCommittees() bool { panic("unimplemented") }
-func (b *badtssMessage) IsToOldCommittee() bool        { panic("unimplemented") }
-func (b *badtssMessage) String() string                { panic("unimplemented") }
-func (b *badtssMessage) Type() string                  { panic("unimplemented") }
-func (b *badtssMessage) WireMsg() *tss.MessageWrapper {
-	return &tss.MessageWrapper{
+func (b *badtssMessage) ValidateBasic() bool            { return true }
+func (b *badtssMessage) GetRound() int                  { return 2 }
+func (b *badtssMessage) Content() common.MessageContent { return nil }
+func (b *badtssMessage) GetFrom() *common.PartyID       { panic("unimplemented") }
+func (b *badtssMessage) GetTo() []*common.PartyID       { panic("unimplemented") }
+func (b *badtssMessage) IsBroadcast() bool              { panic("unimplemented") }
+func (b *badtssMessage) IsToOldAndNewCommittees() bool  { panic("unimplemented") }
+func (b *badtssMessage) IsToOldCommittee() bool         { panic("unimplemented") }
+func (b *badtssMessage) String() string                 { panic("unimplemented") }
+func (b *badtssMessage) Type() string                   { panic("unimplemented") }
+func (b *badtssMessage) WireMsg() *common.MessageWrapper {
+	return &common.MessageWrapper{
 		TrackingID: nil,
 	}
 }
-func (b *badtssMessage) WireBytes() ([]byte, *tss.MessageRouting, error) {
+func (b *badtssMessage) WireBytes() ([]byte, *common.MessageRouting, error) {
 	return nil, nil, errors.New("bad message")
 }
 
@@ -803,7 +801,7 @@ func TestRouteCheck(t *testing.T) {
 
 	e1.Start(ctx)
 	e1.fpOutChan <- &badtssMessage{}
-	e1.fpErrChannel <- tss.NewTrackableError(errors.New("test"), "test", -1, nil, &tsscommon.TrackingID{})
+	e1.fpErrChannel <- common.NewTrackableError(errors.New("test"), "test", -1, nil, &tsscommon.TrackingID{})
 	e1.fpErrChannel <- nil
 
 	time.Sleep(time.Millisecond * 200)
@@ -1005,7 +1003,7 @@ func TestNoFaultsFlow(t *testing.T) {
 
 		e := getSigningGuardian(a, engines, party.SigningTask{
 			Digest:       dgst,
-			Faulties:     []*tss.PartyID{},
+			Faulties:     []*common.PartyID{},
 			AuxilaryData: chainIDToBytes(cID),
 		})
 
@@ -1075,7 +1073,7 @@ func genVaaAndGuardianSet(a *assert.Assertions) (*vaa.VAA, *whcommon.GuardianSet
 		ConsistencyLevel: pythnetFinalizedConsistencyLevel,
 	}
 
-	addrss := []common.Address{}
+	addrss := []ethcommon.Address{}
 	sigs := []*vaa.Signature{}
 	for i := range 5 {
 		guardianSigner, err := guardiansigner.GenerateSignerWithPrivatekeyUnsafe(nil)
@@ -1203,7 +1201,7 @@ func TestFT(t *testing.T) {
 		cID := vaa.ChainID(1)
 		tsk := party.SigningTask{
 			Digest:       party.Digest{1, 2, 3, 4, 5, 6, 7, 8, 9},
-			Faulties:     []*tss.PartyID{},
+			Faulties:     []*common.PartyID{},
 			AuxilaryData: chainIDToBytes(cID),
 		}
 
@@ -1266,12 +1264,15 @@ func TestMessagesWithBadRounds(t *testing.T) {
 					},
 				}},
 			}
+
 			err = e2.handleUnicast(m)
-			a.ErrorIs(err, errUnicastBadRound)
+			a.ErrorContains(err, "received broadcast type message in unicast")
 		}
 	})
 
 	t.Run("Echo", func(t *testing.T) {
+		t.Skip("TODO: Right now there are no 'bad' rounds for echoes (since we've switched to frost), ecdsa might have those. so we might need to include a mechanism to review protocol type in each message.")
+
 		msgDigest := party.Digest{2}
 		for _, rnd := range unicastRounds {
 			parsed := generateFakeMessageWithRandomContent(from.Pid, to.Pid, rnd, msgDigest)
@@ -1295,18 +1296,18 @@ func TestMessagesWithBadRounds(t *testing.T) {
 			a.NoError(e1.sign(uuid{}, m.Content.GetEcho().Message))
 
 			err = e2.handleBroadcast(m)
-			a.ErrorIs(err, errBadRoundsInBroadcast)
+			// a.ErrorIs(err, errBadRoundsInBroadcast)
 		}
 	})
 }
 
-func generateFakeParsedMessageWithRandomContent(from, to *tss.PartyID, rnd signingRound, digest party.Digest) broadcastMessage {
+func generateFakeParsedMessageWithRandomContent(from, to *common.PartyID, rnd signingRound, digest party.Digest) broadcastMessage {
 	fake := generateFakeMessageWithRandomContent(from, to, rnd, digest)
 	return &deliverableMessage{&parsedTssContent{fake, ""}}
 }
 
 // if to == nil it's a broadcast message.
-func generateFakeMessageWithRandomContent(from, to *tss.PartyID, rnd signingRound, digest party.Digest) tss.ParsedMessage {
+func generateFakeMessageWithRandomContent(from, to *common.PartyID, rnd signingRound, digest party.Digest) common.ParsedMessage {
 	partiesState := make([]byte, maxParties)
 	for i := 0; i < maxParties; i++ {
 		partiesState[i] = 255
@@ -1324,44 +1325,31 @@ func generateFakeMessageWithRandomContent(from, to *tss.PartyID, rnd signingRoun
 	rndmBigNumber.SetBytes(buf)
 
 	var (
-		meta    = tss.MessageRouting{From: from, IsBroadcast: true}
-		content tss.MessageContent
+		meta    = common.MessageRouting{From: from, IsBroadcast: true}
+		content common.MessageContent
 	)
 
 	switch rnd {
-	case round1Message1:
-		if to == nil {
-			panic("not a broadcast message")
-		}
-		meta = tss.MessageRouting{From: from, To: []*tss.PartyID{to}, IsBroadcast: false}
-		content = &signing.SignRound1Message1{C: rndmBigNumber.Bytes()}
-	case round1Message2:
-		content = &signing.SignRound1Message2{Commitment: rndmBigNumber.Bytes()}
 	case round2Message:
+		// TODO: change to frost message!
+		content = &sign.Broadcast2{
+			Di: rndmBigNumber.Bytes(),
+			Ei: rndmBigNumber.Bytes(),
+		}
+	case round3Message:
 		if to == nil {
 			panic("not a broadcast message")
 		}
-		meta = tss.MessageRouting{From: from, To: []*tss.PartyID{to}, IsBroadcast: false}
-		content = &signing.SignRound2Message{C1: rndmBigNumber.Bytes()}
-	case round3Message:
-		content = &signing.SignRound3Message{Theta: rndmBigNumber.Bytes()}
-	case round4Message:
-		content = &signing.SignRound4Message{ProofAlphaX: rndmBigNumber.Bytes()}
-	case round5Message:
-		content = &signing.SignRound5Message{Commitment: rndmBigNumber.Bytes()}
-	case round6Message:
-		content = &signing.SignRound6Message{ProofAlphaX: rndmBigNumber.Bytes()}
-	case round7Message:
-		content = &signing.SignRound7Message{Commitment: rndmBigNumber.Bytes()}
-	case round8Message:
-		content = &signing.SignRound8Message{DeCommitment: [][]byte{rndmBigNumber.Bytes()}}
-	case round9Message:
-		content = &signing.SignRound9Message{S: rndmBigNumber.Bytes()}
+		meta = common.MessageRouting{From: from, To: []*common.PartyID{to}, IsBroadcast: false}
+
+		content = &sign.Broadcast3{
+			Zi: rndmBigNumber.Bytes(),
+		}
 	default:
 		panic("unknown round")
 	}
 
-	return tss.NewMessage(meta, content, tss.NewMessageWrapper(meta, content, trackingId))
+	return common.NewMessage(meta, content, common.NewMessageWrapper(meta, content, trackingId))
 }
 
 func loadMockGuardianStorage(gstorageIndex int, from string) *GuardianStorage {
@@ -1454,18 +1442,14 @@ func msgHandler(ctx context.Context, engines []*Engine, numDiffSigsExpected int)
 						}
 						unicast(m, chns, engine)
 					case sig := <-engine.ProducedSignature():
-						signature := append(sig.Signature, sig.SignatureRecovery...)
-						address := engine.GetEthAddress()
-
-						pubKey, err := crypto.Ecrecover(sig.M, signature)
+						sg, err := frost.Secp256k1SignatureTranslate(sig)
 						if err != nil {
-							panic("failed to do ecrecover:" + err.Error())
+							panic("failed to translate signature:" + err.Error())
 						}
-						addr := common.BytesToAddress(crypto.Keccak256(pubKey[1:])[12:])
 
-						// check that the recovered address equals the provided address
-						if addr != address {
-							panic("recovered address does not match provided address")
+						pk := engine.GetPublicKey()
+						if err := sg.Verify(pk, sig.M); err != nil {
+							panic("failed to verify signature:" + err.Error())
 						}
 
 						lck.Lock()
@@ -1521,47 +1505,121 @@ func (c *activeSigCounter) digestToGuardiansLen() int {
 	return len(c.digestToGuardians)
 }
 
+// Used to receive all messages for some engine, then feed them all at once, and collect the result.
+// on error returns err.
+// simulates echoes for each message too!
+type echoFeed struct {
+	eng      *Engine
+	peers    []*Engine
+	messages []IncomingMessage
+}
+
+func (b *echoFeed) addMessage(src *Engine, m Sendable) {
+	inc := IncomingMessage{
+		Source:  src.Self,
+		Content: m.GetNetworkMessage(),
+	}
+
+	b.messages = append(b.messages, inc)
+}
+
+func (b *echoFeed) feedWithEchoes() error {
+	defer func() {
+		b.messages = nil // clear messages after feeding.
+	}()
+
+	if b.messages == nil {
+		return nil
+	}
+
+	for _, msg := range b.messages {
+		if err := b.eng.handleIncomingTssMessage(&msg); err != nil {
+			return err
+		}
+
+		echo := b.genEcho(msg)
+		// for each message: create fictional echo, making the guardian think that all other guardians have echoed it.
+		for _, v := range b.peers {
+			Incoming := &IncomingMessage{
+				Source:  v.Self,
+				Content: echo.GetNetworkMessage(),
+			}
+
+			if err := b.eng.handleIncomingTssMessage(Incoming); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (b *echoFeed) genEcho(msg IncomingMessage) *Echo {
+	// src := msg.GetSource()
+	// sig := msg.Content.GetEcho().Message.Signature
+
+	parsed, err := b.eng.parseBroadcast(&msg)
+	if err != nil {
+		panic(err) // shouldn't happen in the test.
+	}
+
+	return b.eng.makeEcho(&msg, parsed)
+}
+
 func TestSigCounter(t *testing.T) {
 	a := assert.New(t)
 
 	supctx := testutils.MakeSupervisorContext(context.Background())
-	ctx, cancel := context.WithTimeout(supctx, time.Minute*1)
-	defer cancel()
 
 	t.Run("MaxCountBlockAdditionalUpdates", func(t *testing.T) {
-		// Tests might fail due to change of the GuardianStorage files
+		ctx, cancel := context.WithTimeout(supctx, time.Minute*1)
+		defer cancel()
+
+		// t.Skip("TODO: implement this test, fails since we've moved to broadcast only messages!")
+
 		cID := vaa.ChainID(0)
 		tsks := []party.SigningTask{
-			party.SigningTask{party.Digest{1}, []*tss.PartyID{}, chainIDToBytes(cID)},
-			party.SigningTask{party.Digest{2}, []*tss.PartyID{}, chainIDToBytes(cID)},
+			party.SigningTask{party.Digest{1}, []*common.PartyID{}, chainIDToBytes(cID)},
+			party.SigningTask{party.Digest{2}, []*common.PartyID{}, chainIDToBytes(cID)},
 		}
 		engines := load5GuardiansSetupForBroadcastChecks(a)
 		e1 := getSigningGuardian(a, engines, tsks...)
 
 		e1.maxSimultaneousSignatures = 1
-		e1.Start(ctx)
+		feeder := &echoFeed{
+			eng:   e1,
+			peers: engines,
+		}
 
-		msg := beginSigningAndGrabMessage(e1, tsks[0].Digest[:], cID)
+		signersTask0 := getSigningGuardians(a, engines, tsks[0])
+		signersTask1 := getSigningGuardians(a, engines, tsks[1])
 
-		a.NoError(e1.handleIncomingTssMessage(&IncomingMessage{
-			Source:  e1.Self,
-			Content: msg.GetNetworkMessage(),
-		}))
+		for taskNum, committee := range [][]*Engine{signersTask0, signersTask1} {
+			for _, e := range committee {
+				e.Start(ctx)
 
-		// trying to handle a new message for a different signature.
-		msg = beginSigningAndGrabMessage(e1, tsks[1].Digest[:], cID)
+				msg := beginSigningAndGrabMessage(e, tsks[taskNum].Digest[:], cID)
+				feeder.addMessage(e, msg)
+				err := feeder.feedWithEchoes()
+				if err != nil {
+					a.ErrorContains(err, "maximum number of simultaneous")
 
-		a.ErrorContains(e1.handleIncomingTssMessage(&IncomingMessage{
-			Source:  e1.Self,
-			Content: msg.GetNetworkMessage(),
-		}), "reached the maximum number of simultaneous signatures")
+					return
+				}
+			}
+		}
+
+		t.FailNow() // expected feeding to fail due to maxSimultaneousSignatures.
 	})
 
 	t.Run("ErrorReduceCount", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(supctx, time.Minute*1)
+		defer cancel()
+
 		// Tests might fail due to change of the GuardianStorage files
 		cID := vaa.ChainID(0)
 		tsks := []party.SigningTask{
-			party.SigningTask{party.Digest{1}, []*tss.PartyID{}, chainIDToBytes(cID)},
+			party.SigningTask{party.Digest{1}, []*common.PartyID{}, chainIDToBytes(cID)},
 		}
 		engines := load5GuardiansSetupForBroadcastChecks(a)
 		e1 := getSigningGuardian(a, engines, tsks...)
@@ -1570,36 +1628,45 @@ func TestSigCounter(t *testing.T) {
 		e1.Start(ctx)
 
 		msg := beginSigningAndGrabMessage(e1, tsks[0].Digest[:], cID)
+
+		feeder := &echoFeed{
+			eng:   e1,
+			peers: engines,
+		}
+
+		feeder.addMessage(e1, msg)
+		a.NoError(feeder.feedWithEchoes())
 
 		incoming := &IncomingMessage{
 			Source:  e1.Self,
 			Content: msg.GetNetworkMessage(),
 		}
 
-		a.NoError(e1.handleIncomingTssMessage(incoming))
-
-		parsed, err := e1.parseTssContent(incoming.toUnicast().GetTss(), incoming.GetSource())
+		parsed, err := e1.parseTssContent(incoming.toBroadcastMsg().Message.GetTssContent(), incoming.GetSource())
 		a.NoError(err)
 
+		tid := parsed.getTrackingID()
 		// test:
 		a.Equal(e1.sigCounter.digestToGuardiansLen(), 1)
 		select {
-		case e1.fpErrChannel <- tss.NewTrackableError(fmt.Errorf("dummyerr"), "de", -1, e1.Self.Pid, parsed.getTrackingID()):
+		case e1.fpErrChannel <- common.NewTrackableError(fmt.Errorf("dummyerr"), "de", -1, e1.Self.Pid, tid):
 		case <-time.After(time.Second * 1):
 			t.FailNow()
 			return
 		}
-
 		time.Sleep(time.Millisecond * 500)
 
 		a.Equal(e1.sigCounter.digestToGuardiansLen(), 0)
 	})
 
 	t.Run("sigDoneReduceCount", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(supctx, time.Minute*1)
+		defer cancel()
+
 		// Tests might fail due to change of the GuardianStorage files
 		cID := vaa.ChainID(0)
 		tsks := []party.SigningTask{
-			party.SigningTask{party.Digest{1}, []*tss.PartyID{}, chainIDToBytes(cID)},
+			party.SigningTask{party.Digest{1}, []*common.PartyID{}, chainIDToBytes(cID)},
 		}
 		engines := load5GuardiansSetupForBroadcastChecks(a)
 		e1 := getSigningGuardian(a, engines, tsks...)
@@ -1609,14 +1676,20 @@ func TestSigCounter(t *testing.T) {
 
 		msg := beginSigningAndGrabMessage(e1, tsks[0].Digest[:], cID)
 
+		feeder := &echoFeed{
+			eng:   e1,
+			peers: engines,
+		}
+
+		feeder.addMessage(e1, msg)
+		a.NoError(feeder.feedWithEchoes())
+
 		incoming := &IncomingMessage{
 			Source:  e1.Self,
 			Content: msg.GetNetworkMessage(),
 		}
 
-		a.NoError(e1.handleIncomingTssMessage(incoming))
-
-		parsed, err := e1.parseTssContent(incoming.toUnicast().GetTss(), incoming.GetSource())
+		parsed, err := e1.parseTssContent(incoming.toBroadcastMsg().Message.GetTssContent(), incoming.GetSource())
 		a.NoError(err)
 
 		// test:
@@ -1629,37 +1702,47 @@ func TestSigCounter(t *testing.T) {
 			M:                 []byte{},
 			TrackingId:        parsed.getTrackingID(),
 		}
-		time.Sleep(time.Millisecond * 500)
+		<-e1.sigOutChan
+		time.Sleep(time.Second * 1)
 		a.Equal(e1.sigCounter.digestToGuardiansLen(), 0)
 	})
 
 	t.Run("CanHaveSimulSigners", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(supctx, time.Minute*1)
+		defer cancel()
+
+		// t.Skip("TODO: implement this test, fails since we've moved to broadcast only messages!")
+
 		cID := vaa.ChainID(0)
 		tsks := []party.SigningTask{
-			party.SigningTask{party.Digest{1}, []*tss.PartyID{}, chainIDToBytes(cID)},
-			party.SigningTask{party.Digest{2}, []*tss.PartyID{}, chainIDToBytes(cID)},
+			party.SigningTask{party.Digest{1}, []*common.PartyID{}, chainIDToBytes(cID)},
+			party.SigningTask{party.Digest{2}, []*common.PartyID{}, chainIDToBytes(cID)},
 		}
-
 		engines := load5GuardiansSetupForBroadcastChecks(a)
 		e1 := getSigningGuardian(a, engines, tsks...)
+
 		e1.maxSimultaneousSignatures = 2
+		feeder := &echoFeed{
+			eng:   e1,
+			peers: engines,
+		}
 
-		e1.Start(ctx)
+		signersTask0 := getSigningGuardians(a, engines, tsks[0])
+		signersTask1 := getSigningGuardians(a, engines, tsks[1])
 
-		msg := beginSigningAndGrabMessage(e1, tsks[0].Digest[:], cID)
+		for taskNum, committee := range [][]*Engine{signersTask0, signersTask1} {
+			for _, e := range committee {
+				e.Start(ctx)
 
-		a.NoError(e1.handleIncomingTssMessage(&IncomingMessage{
-			Source:  e1.Self,
-			Content: msg.GetNetworkMessage(),
-		}))
-
-		a.NoError(e1.handleIncomingTssMessage(&IncomingMessage{
-			Source:  e1.Self,
-			Content: beginSigningAndGrabMessage(e1, tsks[1].Digest[:], cID).GetNetworkMessage(),
-		}))
-
+				msg := beginSigningAndGrabMessage(e, tsks[taskNum].Digest[:], cID)
+				feeder.addMessage(e, msg)
+				err := feeder.feedWithEchoes()
+				a.NoError(err)
+			}
+		}
 	})
 }
+
 func getSigningGuardian(a *assert.Assertions, engines []*Engine, tsks ...party.SigningTask) *Engine {
 	return getSigningGuardians(a, engines, tsks...)[0]
 }
@@ -1690,12 +1773,23 @@ func beginSigningAndGrabMessage(e1 *Engine, dgst []byte, cid vaa.ChainID) Sendab
 	go e1.BeginAsyncThresholdSigningProtocol(dgst, cid, reportableConsistancyLevel)
 
 	var msg Sendable
-	for i := 0; i < round1NumberOfMessages(e1); i++ { // cleaning the channel, and taking one of the messages.
+	for { // cleaning the channel, and taking one of the messages.
 		select {
 		case tmp := <-e1.ProducedOutputMessages():
-			if !tmp.IsBroadcast() {
-				msg = tmp
+			msg = tmp
+			parsed, err := e1.parseBroadcast(&IncomingMessage{
+				Source:  e1.Self,
+				Content: tmp.GetNetworkMessage(),
+			})
+			if err != nil {
+				panic("failed to parse broadcast message: " + err.Error())
 			}
+
+			if _, ok := parsed.(*deliverableMessage); !ok {
+				continue
+			}
+
+			return msg
 
 		case <-time.After(time.Second * 5):
 			// This means the signer wasn't one of the signing committees. (did the Guardian storage change?)
@@ -1707,9 +1801,8 @@ func beginSigningAndGrabMessage(e1 *Engine, dgst []byte, cid vaa.ChainID) Sendab
 }
 
 func round1NumberOfMessages(e1 *Engine) int {
-	// although threshold is non-inclusive, we only send e1.Threshold since one doesn't includes itSelf.Pid in the unicasts.
-	// the +1 is for the additional broadcast message.
-	return e1.Threshold + 1
+	// we only send one since this is a broadcast message...
+	return 1
 }
 
 func contains(lst []*Engine, e *Engine) bool {

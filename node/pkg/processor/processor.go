@@ -25,7 +25,8 @@ import (
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
 	"github.com/certusone/wormhole/node/pkg/supervisor"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
-	tsscommon "github.com/xlabs/tss-lib/v2/common"
+	"github.com/xlabs/multi-party-sig/protocols/frost"
+	tsscommon "github.com/xlabs/tss-common"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -496,11 +497,22 @@ func (p *Processor) processTssSignature(sig *tsscommon.SignatureData) {
 		return
 	}
 
-	// signature is verified by tss.engine's threshold signature implementation already, so we can treat it as valid.
-	signature := append(sig.Signature, sig.SignatureRecovery...)
+	frostsig, err := frost.Secp256k1SignatureTranslate(sig)
+	if err != nil {
+		p.logger.Error("failed to translate TSS signature", zap.String("hash", hash), zap.Error(err))
+
+		return
+	}
+
+	sigBytes, err := frostsig.MarshalBinary()
+	if err != nil {
+		p.logger.Error("failed to convert TSS signature to bytes", zap.String("hash", hash), zap.Error(err))
+
+		return
+	}
 
 	vaaSig := &vaa.Signature{}
-	copy(vaaSig.Signature[:], signature)
+	copy(vaaSig.Signature[:], sigBytes)
 
 	// using single signature, since it was reached via threshold signing.
 	wtr.vaa.HandleQuorum([]*vaa.Signature{vaaSig}, hash, p)

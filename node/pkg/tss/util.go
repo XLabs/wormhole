@@ -10,10 +10,10 @@ import (
 
 	tsscommv1 "github.com/certusone/wormhole/node/pkg/proto/tsscomm/v1"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
-	"github.com/xlabs/tss-lib/v2/common"
-	"github.com/xlabs/tss-lib/v2/ecdsa/party"
-	"github.com/xlabs/tss-lib/v2/ecdsa/signing"
-	"github.com/xlabs/tss-lib/v2/tss"
+	"github.com/xlabs/multi-party-sig/protocols/frost/keygen"
+	"github.com/xlabs/multi-party-sig/protocols/frost/sign"
+	common "github.com/xlabs/tss-common"
+	"github.com/xlabs/tss-lib/v2/party"
 	"go.uber.org/zap"
 )
 
@@ -50,13 +50,13 @@ func newSigCounter() activeSigCounter {
 	}
 }
 
-func idToString(id *tss.PartyID) strPartyId {
+func idToString(id *common.PartyID) strPartyId {
 	return strPartyId(fmt.Sprintf("%s%x", id.Id, id.Key))
 }
 
 // Add adds a guardian to the counter for a given digest.
 // returns false if this guardian is active for too many signatures ( > maxActiveSignaturesPerGuardian).
-func (c *activeSigCounter) add(trackId *common.TrackingID, guardian *tss.PartyID, maxActiveSignaturesPerGuardian int) bool {
+func (c *activeSigCounter) add(trackId *common.TrackingID, guardian *common.PartyID, maxActiveSignaturesPerGuardian int) bool {
 	if trackId == nil || guardian == nil {
 		return false
 	}
@@ -171,13 +171,13 @@ func logErr(l *zap.Logger, err error) {
 	l.Error(informativeErr.Error(), zapFields...)
 }
 
-func equalPartyIds(a, b *tss.PartyID) bool {
+func equalPartyIds(a, b *common.PartyID) bool {
 	return a.Id == b.Id && string(a.Key) == string(b.Key)
 }
 
-func protoToPartyId(pid *tsscommv1.PartyId) *tss.PartyID {
-	return &tss.PartyID{
-		MessageWrapper_PartyID: &tss.MessageWrapper_PartyID{
+func protoToPartyId(pid *tsscommv1.PartyId) *common.PartyID {
+	return &common.PartyID{
+		MessageWrapper_PartyID: &common.MessageWrapper_PartyID{
 			Id:      pid.Id,
 			Moniker: pid.Moniker,
 			Key:     pid.Key,
@@ -186,7 +186,7 @@ func protoToPartyId(pid *tsscommv1.PartyId) *tss.PartyID {
 	}
 }
 
-func partyIdToProto(pid *tss.PartyID) *tsscommv1.PartyId {
+func partyIdToProto(pid *common.PartyID) *tsscommv1.PartyId {
 	return &tsscommv1.PartyId{
 		Id:      pid.Id,
 		Moniker: pid.Moniker,
@@ -195,7 +195,7 @@ func partyIdToProto(pid *tss.PartyID) *tsscommv1.PartyId {
 	}
 }
 
-func partyIdToString(guardian *tss.PartyID) string {
+func partyIdToString(guardian *common.PartyID) string {
 	return fmt.Sprintf("%s%x", guardian.Id, guardian.Key)
 }
 
@@ -270,28 +270,28 @@ func validateContentCorrectForm(m *tsscommv1.TssContent) error {
 type signingRound string
 
 const (
-	round1Message1 signingRound = "round1M1"
-	round1Message2 signingRound = "round1M2"
-	round2Message  signingRound = "round2"
-	round3Message  signingRound = "round3"
-	round4Message  signingRound = "round4"
-	round5Message  signingRound = "round5"
-	round6Message  signingRound = "round6"
-	round7Message  signingRound = "round7"
-	round8Message  signingRound = "round8"
-	round9Message  signingRound = "round9"
+	// round1Message1 signingRound = "round1M1"
+	// round1Message2 signingRound = "round1M2"
+	round2Message signingRound = "round2"
+	round3Message signingRound = "round3"
+	// round4Message  signingRound = "round4"
+	// round5Message  signingRound = "round5"
+	// round6Message  signingRound = "round6"
+	// round7Message  signingRound = "round7"
+	// round8Message  signingRound = "round8"
+	// round9Message  signingRound = "round9"
 )
 
 var _intToRoundArr = []signingRound{
 	"round1",
 	round2Message,
 	round3Message,
-	round4Message,
-	round5Message,
-	round6Message,
-	round7Message,
-	round8Message,
-	round9Message,
+	// round4Message,
+	// round5Message,
+	// round6Message,
+	// round7Message,
+	// round8Message,
+	// round9Message,
 }
 
 func intToRound(i int) signingRound {
@@ -302,30 +302,35 @@ func intToRound(i int) signingRound {
 	return _intToRoundArr[i-1]
 }
 
-func getRound(m tss.ParsedMessage) (signingRound, error) {
+func getRound(m common.ParsedMessage) (signingRound, error) {
+	if m == nil {
+		return "", fmt.Errorf("message is nil")
+	}
+
+	if m.Content() == nil {
+		return "", fmt.Errorf("message content is nil")
+	}
+
+	rnd := m.Content().RoundNumber()
+	if rnd < 1 || rnd > len(_intToRoundArr) {
+		return "", fmt.Errorf("message content round number is out of range")
+	}
+
+	return _intToRoundArr[m.Content().RoundNumber()-1], nil
+}
+
+func isBroadcastMsg(m common.ParsedMessage) bool {
 	switch m.Content().(type) {
-	case *signing.SignRound1Message1:
-		return round1Message1, nil
-	case *signing.SignRound1Message2:
-		return round1Message2, nil
-	case *signing.SignRound2Message:
-		return round2Message, nil
-	case *signing.SignRound3Message:
-		return round3Message, nil
-	case *signing.SignRound4Message:
-		return round4Message, nil
-	case *signing.SignRound5Message:
-		return round5Message, nil
-	case *signing.SignRound6Message:
-		return round6Message, nil
-	case *signing.SignRound7Message:
-		return round7Message, nil
-	case *signing.SignRound8Message:
-		return round8Message, nil
-	case *signing.SignRound9Message:
-		return round9Message, nil
+	case *sign.Broadcast2:
+		return true
+	case *sign.Broadcast3:
+		return true
+	case *keygen.Broadcast2:
+		return true
+	case *keygen.Broadcast3:
+		return true
 	default:
-		return "", fmt.Errorf("unknown message type")
+		return false
 	}
 }
 
@@ -361,15 +366,6 @@ func (st *GuardianStorage) validateTrackingIDForm(tid *common.TrackingID) error 
 	// TODO: expecting auxilaryData to be set.
 
 	return nil
-}
-
-func getCommitteeIDs(pids []*tss.PartyID) []string {
-	ids := make([]string, 0, len(pids))
-	for _, v := range pids {
-		ids = append(ids, v.Id)
-	}
-
-	return ids
 }
 
 func extractChainIDFromTrackingID(tid *common.TrackingID) vaa.ChainID {

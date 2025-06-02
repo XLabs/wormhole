@@ -20,13 +20,12 @@ import (
 	"github.com/certusone/wormhole/node/pkg/supervisor"
 	"github.com/certusone/wormhole/node/pkg/tss/internal"
 	ethcommon "github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
-	"github.com/xlabs/tss-lib/v2/common"
-	tssutil "github.com/xlabs/tss-lib/v2/ecdsa/ethereum"
-	"github.com/xlabs/tss-lib/v2/ecdsa/keygen"
-	"github.com/xlabs/tss-lib/v2/ecdsa/party"
-	"github.com/xlabs/tss-lib/v2/tss"
+	frosteth "github.com/xlabs/multi-party-sig/pkg/eth"
+	"github.com/xlabs/multi-party-sig/pkg/math/curve"
+	"github.com/xlabs/multi-party-sig/protocols/frost"
+	common "github.com/xlabs/tss-common"
+	"github.com/xlabs/tss-lib/v2/party"
 	"go.uber.org/zap"
 )
 
@@ -44,11 +43,11 @@ type Engine struct {
 	fpParams *party.Parameters
 	fp       party.FullParty
 
-	fpOutChan      chan tss.Message
+	fpOutChan      chan common.ParsedMessage
 	fpSigOutChan   chan *common.SignatureData // output inspected in fpListener.
 	sigOutChan     chan *common.SignatureData // actual sig output.
 	messageOutChan chan Sendable
-	fpErrChannel   chan *tss.Error // used to log issues from the FullParty.
+	fpErrChannel   chan *common.Error // used to log issues from the FullParty.
 
 	started         atomic.Uint32
 	msgSerialNumber uint64
@@ -84,7 +83,7 @@ type Configurations struct {
 }
 
 type Identity struct {
-	Pid     *tss.PartyID // used for tss protocol.
+	Pid     *common.PartyID // used for tss protocol.
 	KeyPEM  PEM
 	Key     *ecdsa.PublicKey `json:"-"` // ensuring this isn't stored in non-pem format.
 	CertPem PEM
@@ -138,13 +137,13 @@ func (id *Identity) portAndHostToNetName() string {
 	return net.JoinHostPort(id.Hostname, port)
 }
 
-func (id *Identity) getPidCopy() *tss.PartyID {
+func (id *Identity) getPidCopy() *common.PartyID {
 	keyCpy := make([]byte, len(id.Pid.Key))
 	copy(keyCpy, id.Pid.Key)
 
 	// return a copy, tss-lib might modify this object.
-	return &tss.PartyID{
-		MessageWrapper_PartyID: &tss.MessageWrapper_PartyID{
+	return &common.PartyID{
+		MessageWrapper_PartyID: &common.MessageWrapper_PartyID{
 			Id:      id.Pid.Id,
 			Moniker: id.Pid.Moniker,
 			Key:     keyCpy,
@@ -158,10 +157,11 @@ type Identities struct {
 	Identities []*Identity
 
 	// maps and slices to ensure quick lookups.
-	indexToIdendity  map[SenderIndex]int
-	pemkeyToGuardian map[string]int
-	peerCerts        []*x509.Certificate // avoid
-	partyIds         []*tss.PartyID
+	indexToIdendity   map[SenderIndex]int
+	partyIDToIdentity map[string]int // maps PartyID.Id to the index in Identities.
+	pemkeyToGuardian  map[string]int
+	peerCerts         []*x509.Certificate // avoid
+	partyIds          []*common.PartyID
 }
 
 func (i Identities) Len() int {
@@ -183,14 +183,15 @@ type GuardianStorage struct {
 	signingKey *ecdsa.PrivateKey // should be the unmarshalled value of PriavteKey.
 
 	// Stored sorted by Key. include Self.
-	// Guardians []*tss.PartyID
+	// Guardians []*common.PartyID
 	Guardians Identities
 
 	// Assumes threshold = 2f+1, where f is the maximal expected number of faulty nodes.
 	Threshold int
 
 	// all secret keys should be generated with specific value.
-	SavedSecretParameters *keygen.LocalPartySaveData
+	TSSSecrets []byte
+	frostconf  *frost.Config
 
 	LoadDistributionKey []byte
 
@@ -341,7 +342,7 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 	flds := []zap.Field{
 		zap.String("trackingID", info.TrackingID.ToString()),
 		zap.String("ChainID", chainID.String()),
-		zap.Any("committee", getCommitteeIDs(info.SigningCommittee)),
+		zap.Any("committee", t.getCommitteeNames(info.SigningCommittee)),
 	}
 
 	t.logger.Info(
@@ -360,6 +361,21 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 	}
 
 	return nil
+}
+
+func (t *Engine) getCommitteeNames(pids []*common.PartyID) []string {
+	ids := make([]string, 0, len(pids))
+	for _, pid := range pids {
+		id := t.GuardianStorage.getIdentityFromPartyID(pid)
+		if id == nil {
+			t.logger.Warn("couldn't find identity for partyID", zap.Any("partyID", pid))
+			continue
+		}
+
+		ids = append(ids, id.Hostname)
+	}
+
+	return ids
 }
 
 func (t *Engine) SetGuardianSetState(gss *whcommon.GuardianSetState) error {
@@ -404,7 +420,7 @@ func (t *Engine) getSigPrepInfo(chainID vaa.ChainID, d party.Digest) (sigPrepara
 func (t *Engine) prepareThenAnounceNewDigest(d party.Digest, chainID vaa.ChainID, consistencyLvl uint8, mt signingMeta) error {
 	signinginfo, err := t.fp.GetSigningInfo(party.SigningTask{
 		Digest:       d,
-		Faulties:     []*tss.PartyID{}, // no faulties
+		Faulties:     []*common.PartyID{}, // no faulties
 		AuxilaryData: chainIDToBytes(chainID),
 	})
 
@@ -426,7 +442,7 @@ func (t *Engine) prepareThenAnounceNewDigest(d party.Digest, chainID vaa.ChainID
 	return nil
 }
 
-func makeSigningRequest(d party.Digest, faulties []*tss.PartyID, chainID vaa.ChainID) party.SigningTask {
+func makeSigningRequest(d party.Digest, faulties []*common.PartyID, chainID vaa.ChainID) party.SigningTask {
 	return party.SigningTask{
 		Digest: d,
 		// indicating the reviving guardian will be given a chance to join the protocol.
@@ -457,11 +473,10 @@ func NewReliableTSS(storage *GuardianStorage) (ReliableTSS, error) {
 	}
 
 	fpParams := &party.Parameters{
-		SavedSecrets:         storage.SavedSecretParameters,
-		PartyIDs:             storage.Guardians.partyIds,
-		Self:                 storage.Self.Pid,
-		Threshold:            storage.Threshold,
-		WorkDir:              "", // set to empty since we don't support DKG/reshare protocol yet.
+		InitConfigs: storage.frostconf,
+		PartyIDs:    storage.Guardians.partyIds,
+		Self:        storage.Self.Pid,
+
 		MaxSignerTTL:         storage.MaxSignerTTL,
 		LoadDistributionSeed: storage.LoadDistributionKey,
 	}
@@ -481,11 +496,11 @@ func NewReliableTSS(storage *GuardianStorage) (ReliableTSS, error) {
 
 		fpParams:     fpParams,
 		fp:           fp,
-		fpOutChan:    make(chan tss.Message, expectedMsgs),
+		fpOutChan:    make(chan common.ParsedMessage, expectedMsgs),
 		fpSigOutChan: make(chan *common.SignatureData, storage.maxSimultaneousSignatures),
 		sigOutChan:   make(chan *common.SignatureData, storage.maxSimultaneousSignatures),
 
-		fpErrChannel:    make(chan *tss.Error, storage.maxSimultaneousSignatures),
+		fpErrChannel:    make(chan *common.Error, storage.maxSimultaneousSignatures),
 		messageOutChan:  make(chan Sendable, expectedMsgs),
 		msgSerialNumber: 0,
 		mtx:             &sync.Mutex{},
@@ -517,7 +532,7 @@ func (t *Engine) Start(ctx context.Context) error {
 
 	t.ctx = ctx
 	t.logger = supervisor.Logger(ctx).
-		With(zap.String("ID", t.GuardianStorage.Self.Pid.Id)).
+		With(zap.String("hostname", t.GuardianStorage.Self.Hostname)).
 		Named("tss")
 
 	if err := t.fp.Start(t.fpOutChan, t.fpSigOutChan, t.fpErrChannel); err != nil {
@@ -548,16 +563,23 @@ func (t *Engine) Start(ctx context.Context) error {
 	return nil
 }
 
-func (t *Engine) GetPublicKey() *ecdsa.PublicKey {
+func (t *Engine) GetPublicKey() curve.Point {
 	return t.fp.GetPublic()
 }
 
 func (t *Engine) GetEthAddress() ethcommon.Address {
 	pubkey := t.fp.GetPublic()
-	ethAddBytes := ethcommon.LeftPadBytes(
-		crypto.Keccak256(tssutil.EcdsaPublicKeyToBytes(pubkey)[1:])[12:], 32)
 
-	return ethcommon.BytesToAddress(ethAddBytes)
+	ethaddress := ethcommon.Address{}
+
+	add, err := frosteth.PointToAddress(pubkey)
+	if err != nil {
+		t.logger.Error("failed to convert public key to Ethereum address", zap.Error(err))
+	}
+
+	copy(ethaddress[:], add[:])
+
+	return ethaddress
 }
 
 func (st *GuardianStorage) maxSignerTTL() time.Duration {
@@ -636,7 +658,7 @@ func (t *Engine) handleFpSignature(sig *common.SignatureData) {
 	t.sigMetricDone(sig.TrackingId, false) // false since there were no issues.
 }
 
-func (t *Engine) handleFpError(err *tss.Error) {
+func (t *Engine) handleFpError(err *common.Error) {
 	if err == nil {
 		return
 	}
@@ -670,7 +692,7 @@ func (t *Engine) handleFpError(err *tss.Error) {
 	t.sigMetricDone(trackid, true)
 }
 
-func (t *Engine) handleFpOutput(m tss.Message) {
+func (t *Engine) handleFpOutput(m common.Message) {
 	tssMsg, err := t.intoSendable(m)
 	if err == nil {
 
@@ -693,8 +715,8 @@ func (t *Engine) handleFpOutput(m tss.Message) {
 	}
 
 	// The following should always pass, since FullParty outputs a
-	// tss.ParsedMessage and a valid message with a specific round.
-	if parsed, ok := m.(tss.ParsedMessage); ok {
+	// common.ParsedMessage and a valid message with a specific round.
+	if parsed, ok := m.(common.ParsedMessage); ok {
 		if rnd, e := getRound(parsed); e == nil {
 			lgErr.round = rnd
 		}
@@ -740,7 +762,7 @@ func (t *Engine) cleanup(maxTTL time.Duration) {
 	}
 }
 
-func (t *Engine) intoSendable(m tss.Message) (Sendable, error) {
+func (t *Engine) intoSendable(m common.Message) (Sendable, error) {
 	bts, routing, err := m.WireBytes()
 	if err != nil {
 		return nil, err
@@ -831,6 +853,14 @@ func (t *Engine) handleIncomingTssMessage(msg Incoming) error {
 }
 
 func (t *Engine) sendEchoOut(parsed broadcastMessage, m Incoming) {
+	select {
+	case t.messageOutChan <- t.makeEcho(m, parsed):
+	default:
+		t.logger.Warn("couldn't echo the message, network output channel buffer is full")
+	}
+}
+
+func (t *Engine) makeEcho(m Incoming, parsed broadcastMessage) *Echo {
 	e := m.toBroadcastMsg()
 
 	uuid := parsed.getUUID(t.LoadDistributionKey)
@@ -846,15 +876,11 @@ func (t *Engine) sendEchoOut(parsed broadcastMessage, m Incoming) {
 			},
 		},
 	}
-
-	select {
-	case t.messageOutChan <- newEcho(content, t.Guardians.Identities):
-	default:
-		t.logger.Warn("couldn't echo the message, network output channel buffer is full")
-	}
+	ech := newEcho(content, t.Guardians.Identities)
+	return ech
 }
 
-var errBadRoundsInBroadcast = fmt.Errorf("cannot receive broadcast for rounds: %v,%v", round1Message1, round2Message)
+// var errBadRoundsInBroadcast = fmt.Errorf("cannot receive broadcast for rounds: %v,%v", round1Message1, round2Message)
 
 func (t *Engine) handleBroadcast(m Incoming) error {
 	parsed, err := t.parseBroadcast(m)
@@ -878,18 +904,29 @@ func (t *Engine) handleBroadcast(m Incoming) error {
 	return deliverable.deliver(t)
 }
 
-func (t *Engine) feedIncomingToFp(parsed tss.ParsedMessage) error {
+func (t *Engine) feedIncomingToFp(parsed common.ParsedMessage) error {
 	trackId := parsed.WireMsg().TrackingID
 	from := parsed.GetFrom()
+
+	id := t.GuardianStorage.getIdentityFromPartyID(from)
+	if id == nil {
+		return fmt.Errorf("received message from unknown guardian: %v", from) // shouldn't happen.
+	}
+
 	maxLiveSignatures := t.GuardianStorage.maxSimultaneousSignatures
 
 	if ok := t.sigCounter.add(trackId, from, maxLiveSignatures); ok {
-		return t.fp.Update(parsed)
+		_, err := t.fp.Update(parsed) // TODO: consider waiting on the update to finish, and log it. (perhaps in debug mode only).
+		if err != nil {
+			return fmt.Errorf("failed to update full party with incoming message: %w", err)
+		}
+
+		return nil
 	}
 
 	tooManySimulSigsErrCntr.Inc()
 
-	return fmt.Errorf("guardian %v has reached the maximum number of simultaneous signatures", from.Id)
+	return fmt.Errorf("guardian %v has reached the maximum number of simultaneous signatures", id.Hostname)
 }
 
 var errUnicastBadRound = fmt.Errorf("bad round for unicast (can accept round1Message1 and round2Message)")
@@ -931,10 +968,12 @@ func (t *Engine) handleUnicastTSS(v *tsscommv1.Unicast_Tss, src *Identity) error
 
 	if err = t.validateUnicastDoesntExist(fpmsg); err == errUnicastAlreadyReceived {
 		return nil
+	} else if err != nil {
+		return fpmsg.wrapError(fmt.Errorf("failed to ensure no equivication present in unicast: %w, sender:%v", err, src.Hostname))
 	}
 
-	if err != nil {
-		return fpmsg.wrapError(fmt.Errorf("failed to ensure no equivication present in unicast: %w, sender:%v", err, src.Hostname))
+	if isBroadcastMsg(fpmsg) {
+		return fmt.Errorf("received broadcast type message in unicast: %v", fpmsg)
 	}
 
 	if err := t.feedIncomingToFp(fpmsg); err != nil {
@@ -946,7 +985,7 @@ func (t *Engine) handleUnicastTSS(v *tsscommv1.Unicast_Tss, src *Identity) error
 
 var errUnicastAlreadyReceived = fmt.Errorf("unicast already received")
 
-func (t *Engine) validateUnicastDoesntExist(parsed tss.ParsedMessage) error {
+func (t *Engine) validateUnicastDoesntExist(parsed common.ParsedMessage) error {
 	tmp := serializeableMessage{&tssMessageWrapper{parsed}}
 	id := tmp.getUUID(t.LoadDistributionKey)
 

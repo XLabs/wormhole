@@ -4,9 +4,8 @@ import (
 	"time"
 
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
-	"github.com/xlabs/tss-lib/v2/common"
-	"github.com/xlabs/tss-lib/v2/ecdsa/party"
-	"github.com/xlabs/tss-lib/v2/tss"
+	common "github.com/xlabs/tss-common"
+	"github.com/xlabs/tss-lib/v2/party"
 	"go.uber.org/zap"
 )
 
@@ -86,7 +85,7 @@ type ftChainContext struct {
 
 // Describes a specfic party's data in terms of fault tolerance.
 type ftParty struct {
-	partyID        *tss.PartyID
+	partyID        *common.PartyID
 	ftChainContext map[vaa.ChainID]*ftChainContext
 }
 

@@ -18,8 +18,7 @@ import (
 
 	tsscommv1 "github.com/certusone/wormhole/node/pkg/proto/tsscomm/v1"
 
-	"github.com/xlabs/tss-lib/v2/common"
-	"github.com/xlabs/tss-lib/v2/tss"
+	common "github.com/xlabs/tss-common"
 )
 
 // voterId is comprised from the id and key of the signer, should match the guardians (in GuardianStorage) id and key.
@@ -67,7 +66,7 @@ func (s *deliverableMessage) getUUID(loadDistKey []byte) uuid {
 
 // serializeables
 type tssMessageWrapper struct {
-	tss.Message
+	common.Message
 }
 
 func (t *tssMessageWrapper) serialize() []byte {
@@ -75,7 +74,7 @@ func (t *tssMessageWrapper) serialize() []byte {
 }
 
 type parsedTssContent struct {
-	tss.ParsedMessage
+	common.ParsedMessage
 	signingRound
 }
 
@@ -96,7 +95,7 @@ func (p *parsedHashEcho) getUUID(loadDistKey []byte) uuid {
 // We don't add the content of the message to the uuid, instead we collect all data that can put this message in a context.
 // this is used by the broadcast protocol to check no two messages from the same sender will be used to update the full party
 // in the same round for the specific session of the protocol.
-func serializeTSSMessage(msg tss.Message) []byte {
+func serializeTSSMessage(msg common.Message) []byte {
 	// The TackingID of a parsed message is tied to the run of the protocol for a single
 	//  signature, thus we use it as a sessionID.
 	messageTrackingID := [trackingIDHexStrSize]byte{}
@@ -318,16 +317,17 @@ func (t *Engine) validateBroadcastState(s *broadcaststate, parsed broadcastMessa
 
 	uid := parsed.getUUID(t.LoadDistributionKey)
 
+	signedMsgHash := hashSignedMessage(unparsedSignedMessage)
+
 	// verify incoming
 	if s.verifiedDigest == nil {
 		if err := t.verifySignedMessage(uid, unparsedSignedMessage); err != nil {
 			return err
 		}
 
-		tmp := hashSignedMessage(unparsedSignedMessage)
-		s.verifiedDigest = &tmp
+		s.verifiedDigest = &signedMsgHash
 
-	} else if *s.verifiedDigest != hashSignedMessage(unparsedSignedMessage) {
+	} else if *s.verifiedDigest != signedMsgHash {
 		if err := t.verifySignedMessage(uid, unparsedSignedMessage); err != nil {
 			// two different digest and bad signature.
 			return fmt.Errorf("caught bad behaviour: Echoer %v sent a digest that can't be verified", src.Hostname)

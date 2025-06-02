@@ -10,7 +10,10 @@ import (
 	"os"
 
 	"github.com/certusone/wormhole/node/pkg/tss/internal"
-	"github.com/xlabs/tss-lib/v2/tss"
+	"github.com/fxamacker/cbor/v2"
+	"github.com/xlabs/multi-party-sig/pkg/math/curve"
+	"github.com/xlabs/multi-party-sig/protocols/frost"
+	common "github.com/xlabs/tss-common"
 )
 
 func (s *GuardianStorage) unmarshalFromJSON(storageData []byte) error {
@@ -29,6 +32,21 @@ func (s *GuardianStorage) unmarshalFromJSON(storageData []byte) error {
 	if s.Threshold > len(s.Guardians.Identities) {
 		return fmt.Errorf("threshold is higher than the number of guardians")
 	}
+
+	if s.TSSSecrets == nil {
+		return fmt.Errorf("TSSSecrets is nil")
+	}
+
+	cnf := frost.EmptyConfig(curve.Secp256k1{})
+	if err := cbor.Unmarshal(s.TSSSecrets, &cnf); err != nil { // TODO: find a way to remove cbor dependency
+		return fmt.Errorf("error unmarshalling TSSSecrets: %v", err)
+	}
+
+	if len(cnf.VerificationShares.Points) != len(s.Guardians.Identities) {
+		return fmt.Errorf("number of verification shares does not match number of guardians")
+	}
+
+	s.frostconf = cnf
 
 	return nil
 }
@@ -83,15 +101,17 @@ func (s *GuardianStorage) SetInnerFields() error {
 	}
 
 	s.Guardians.peerCerts = make([]*x509.Certificate, s.Guardians.Len())
-	s.Guardians.partyIds = make([]*tss.PartyID, s.Guardians.Len())
+	s.Guardians.partyIds = make([]*common.PartyID, s.Guardians.Len())
 	s.Guardians.pemkeyToGuardian = make(map[string]int)
 	s.Guardians.indexToIdendity = make(map[SenderIndex]int)
+	s.Guardians.partyIDToIdentity = make(map[string]int)
 	// Since the guardians are sorted by key, we can use their position as their index.
 	for i := range s.Guardians.Len() {
 		s.Guardians.peerCerts[i] = s.Guardians.Identities[i].Cert
 		s.Guardians.partyIds[i] = s.Guardians.Identities[i].Pid
 		s.Guardians.pemkeyToGuardian[string(s.Guardians.Identities[i].KeyPEM)] = i
 		s.Guardians.indexToIdendity[SenderIndex(i)] = i
+		s.Guardians.partyIDToIdentity[s.Guardians.Identities[i].Pid.Id] = i
 	}
 
 	if s.LeaderIdentity == nil {
@@ -191,11 +211,20 @@ func (s *GuardianStorage) contains(sender SenderIndex) bool {
 	return ok
 }
 
-func (s *GuardianStorage) getPartyIdFromIndex(senderId SenderIndex) *tss.PartyID {
+func (s *GuardianStorage) getPartyIdFromIndex(senderId SenderIndex) *common.PartyID {
 	pos, ok := s.Guardians.indexToIdendity[senderId]
 	if !ok {
 		return nil
 	}
 
 	return s.Guardians.Identities[pos].getPidCopy()
+}
+
+func (s *GuardianStorage) getIdentityFromPartyID(senderPid *common.PartyID) *Identity {
+	pos, ok := s.Guardians.partyIDToIdentity[senderPid.GetId()]
+	if !ok {
+		return nil
+	}
+
+	return s.Guardians.Identities[pos]
 }

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	tsscommv1 "github.com/certusone/wormhole/node/pkg/proto/tsscomm/v1"
-	"github.com/xlabs/tss-lib/v2/tss"
+	common "github.com/xlabs/tss-common"
 )
 
 func (t *Engine) parseBroadcast(m Incoming) (broadcastMessage, error) {
@@ -27,9 +27,13 @@ func (t *Engine) parseBroadcast(m Incoming) (broadcastMessage, error) {
 
 		pid := t.GuardianStorage.getPartyIdFromIndex(senderId)
 
-		p, err := tss.ParseWireMessage(v.TssContent.Payload, pid, true)
+		p, err := common.ParseWireMessage(v.TssContent.Payload, pid, true)
 		if err != nil {
 			return nil, err
+		}
+
+		if !isBroadcastMsg(p) {
+			return nil, fmt.Errorf("non-broadcast message received in broadcast router: %T. sender: %s", p, m.GetSource().Hostname)
 		}
 
 		parsed := &parsedTssContent{p, ""}
@@ -42,10 +46,11 @@ func (t *Engine) parseBroadcast(m Incoming) (broadcastMessage, error) {
 
 		parsed.signingRound = rnd
 
+		// TODO: once keygen/reshare is implemented, we need to redefine this check, since we'll be using unicasts in round 1.
 		// according to gg18 (tss ecdsa paper), unicasts are sent in these rounds.
-		if rnd == round1Message1 || rnd == round2Message {
-			return res, errBadRoundsInBroadcast
-		}
+		// if rnd == round1Message1 || rnd == round2Message {
+		// 	return res, errBadRoundsInBroadcast
+		// }
 
 		if err := t.validateTrackingIDForm(parsed.getTrackingID()); err != nil {
 			return res, err
@@ -65,6 +70,7 @@ func (t *Engine) parseBroadcast(m Incoming) (broadcastMessage, error) {
 	}
 }
 
+// TODO: this is used for keygen/reshare only since frost doesn't use unicasts.
 func (t *Engine) parseTssContent(m *tsscommv1.TssContent, source *Identity) (*parsedTssContent, error) {
 	if err := validateContentCorrectForm(m); err != nil {
 		return nil, err
@@ -72,7 +78,7 @@ func (t *Engine) parseTssContent(m *tsscommv1.TssContent, source *Identity) (*pa
 
 	spid := source.getPidCopy()
 
-	p, err := tss.ParseWireMessage(m.Payload, spid, false)
+	p, err := common.ParseWireMessage(m.Payload, spid, false)
 	if err != nil {
 		return nil, err
 	}
@@ -92,9 +98,9 @@ func (t *Engine) parseTssContent(m *tsscommv1.TssContent, source *Identity) (*pa
 	parsed.signingRound = rnd
 
 	// only round 1 and round 2 are unicasts.
-	if rnd != round1Message1 && rnd != round2Message {
-		return parsed, errUnicastBadRound
-	}
+	// if rnd != round1Message1 && rnd != round2Message {
+	// 	return parsed, errUnicastBadRound
+	// }
 
 	if err := t.validateTrackingIDForm(parsed.getTrackingID()); err != nil {
 		return parsed, err
