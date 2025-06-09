@@ -477,7 +477,7 @@ func (p *Processor) processTssSignature(sig *tsscommon.SignatureData) {
 		return
 	}
 
-	if sig.Signature == nil {
+	if sig.S == nil {
 		p.logger.Error("received TSS signature with nil signature")
 		return
 	}
