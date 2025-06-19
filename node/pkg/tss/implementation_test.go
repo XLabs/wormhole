@@ -510,7 +510,7 @@ func TestBadInputs(t *testing.T) {
 		err = e1.handleIncomingTssMessage(&IncomingMessage{Source: e2.Self, Content: &tsscommv1.PropagatedMessage{
 			Message: &tsscommv1.PropagatedMessage_Echo{Echo: &tsscommv1.Echo{
 				Message: &tsscommv1.SignedMessage{
-					Sender: uint32(e2.Self.Pid.Index),
+					Sender: uint32(e2.fetchIdentityFromPartyID(e2.Self.Pid).CommunicationIndex),
 				},
 			}}},
 		})
@@ -522,7 +522,7 @@ func TestBadInputs(t *testing.T) {
 					Content: &tsscommv1.SignedMessage_TssContent{
 						TssContent: &tsscommv1.TssContent{},
 					},
-					Sender:    uint32(e2.Self.Pid.Index),
+					Sender:    uint32(e2.fetchIdentityFromPartyID(e2.Self.Pid).CommunicationIndex),
 					Signature: []byte{1, 2, 3},
 				},
 			}}},
@@ -537,7 +537,7 @@ func TestBadInputs(t *testing.T) {
 							Payload: []byte{1, 2, 3},
 						},
 					},
-					Sender: uint32(e2.Self.Pid.Index),
+					Sender: uint32(e2.fetchIdentityFromPartyID(e2.Self.Pid).CommunicationIndex),
 				},
 			}}},
 		})
@@ -551,7 +551,7 @@ func TestBadInputs(t *testing.T) {
 							Payload: []byte{1, 2, 3},
 						},
 					},
-					Sender:    uint32(e2.Self.Pid.Index),
+					Sender:    uint32(e2.fetchIdentityFromPartyID(e2.Self.Pid).CommunicationIndex),
 					Signature: []byte{1, 2, 3},
 				},
 			}}},
@@ -607,7 +607,7 @@ func TestBadInputs(t *testing.T) {
 		bts, err := v.Marshal()
 		a.NoError(err)
 
-		engine.LeaderIdentity = engine.Self.Pid.Key
+		engine.LeaderIdentity = PEM(engine.Self.Pid.GetID())
 
 		t.Run("Bad Version", func(t *testing.T) {
 			err = engine.handleUnicastVaaV1(&tsscommv1.Unicast_Vaav1{
@@ -729,16 +729,16 @@ func TestFetchPartyId(t *testing.T) {
 	a := assert.New(t)
 	engines := load5GuardiansSetupForBroadcastChecks(a)
 	e1 := engines[0]
-	id, err := e1.FetchPartyId(e1.Guardians.peerCerts[0])
+	id, err := e1.FetchIdentity(e1.Guardians.peerCerts[0])
 	a.NoError(err)
-	a.Equal(e1.Self.Pid.Id, id.Pid.Id)
+	a.True(e1.Self.Pid.Equals(id.Pid))
 
 	crt := createX509Cert("localhost")
-	_, err = e1.FetchPartyId(crt)
+	_, err = e1.FetchIdentity(crt)
 	a.ErrorContains(err, "unsupported") // cert.PublicKey=nil
 
 	crt.PublicKey = []byte{1, 2, 3}
-	_, err = e1.FetchPartyId(crt)
+	_, err = e1.FetchIdentity(crt)
 	a.ErrorContains(err, "unknown")
 }
 
@@ -787,6 +787,9 @@ func (b *badtssMessage) WireMsg() *common.MessageWrapper {
 func (b *badtssMessage) WireBytes() ([]byte, *common.MessageRouting, error) {
 	return nil, nil, errors.New("bad message")
 }
+func (b *badtssMessage) GetProtocol() common.ProtocolType {
+	return common.ProtocolFROST
+}
 
 func TestRouteCheck(t *testing.T) {
 	// this test is a bit of a hack.
@@ -818,7 +821,7 @@ func TestDefaultSameLeader(t *testing.T) {
 	for _, e := range engines {
 		a.Equal(e.LeaderIdentity, leader)
 
-		if bytes.Equal(e.Self.Pid.Key, leader) {
+		if bytes.Equal(PEM(e.Self.Pid.GetID()), leader) {
 			a.True(e.isleader)
 		} else {
 			a.False(e.isleader)
@@ -1008,7 +1011,7 @@ func TestNoFaultsFlow(t *testing.T) {
 		})
 
 		for _, engine := range engines {
-			if equalPartyIds(e.Self.Pid, engine.Self.Pid) {
+			if e.Self.Pid.Equals(engine.Self.Pid) {
 				continue
 			}
 
@@ -1042,7 +1045,7 @@ func TestNoFaultsFlow(t *testing.T) {
 
 		engines[0].isleader = true
 		for _, engine := range engines {
-			engine.LeaderIdentity = engines[0].Self.Pid.Key
+			engine.LeaderIdentity = PEM(engines[0].Self.Pid.GetID())
 			engine.SetGuardianSetState(gst)
 			a.NoError(engine.Start(ctx))
 		}
@@ -1401,7 +1404,7 @@ func msgHandler(ctx context.Context, engines []*Engine, numDiffSigsExpected int)
 
 		chns := make(map[string]chan msgg, len(engines))
 		for _, en := range engines {
-			chns[en.Self.Pid.Id] = make(chan msgg, 10000)
+			chns[en.Self.Pid.GetID()] = make(chan msgg, 10000)
 		}
 
 		for _, e := range engines {
@@ -1418,7 +1421,7 @@ func msgHandler(ctx context.Context, engines []*Engine, numDiffSigsExpected int)
 					case <-ctx.Done():
 						return
 
-					case msg := <-chns[engine.Self.Pid.Id]:
+					case msg := <-chns[engine.Self.Pid.GetID()]:
 						engine.HandleIncomingTssMessage(&IncomingMessage{
 							Source:  msg.Sender,
 							Content: msg.GetNetworkMessage(),
@@ -1480,7 +1483,7 @@ func msgHandler(ctx context.Context, engines []*Engine, numDiffSigsExpected int)
 func unicast(m Sendable, chns map[string]chan msgg, engine *Engine) {
 	pids := m.GetDestinations()
 	for _, id := range pids {
-		feedChn := chns[id.Pid.Id]
+		feedChn := chns[id.Pid.GetID()]
 		feedChn <- msgg{
 			Sender:   engine.Self,
 			Sendable: m.cloneSelf(),
@@ -1807,7 +1810,7 @@ func round1NumberOfMessages(e1 *Engine) int {
 
 func contains(lst []*Engine, e *Engine) bool {
 	for _, l := range lst {
-		if l.Self.Pid.Id == e.Self.Pid.Id {
+		if l.Self.Pid.Equals(e.Self.Pid) {
 			return true
 		}
 	}

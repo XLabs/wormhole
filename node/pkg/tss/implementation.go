@@ -18,7 +18,6 @@ import (
 	whcommon "github.com/certusone/wormhole/node/pkg/common"
 	tsscommv1 "github.com/certusone/wormhole/node/pkg/proto/tsscomm/v1"
 	"github.com/certusone/wormhole/node/pkg/supervisor"
-	"github.com/certusone/wormhole/node/pkg/tss/internal"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 	frosteth "github.com/xlabs/multi-party-sig/pkg/eth"
@@ -27,6 +26,7 @@ import (
 	common "github.com/xlabs/tss-common"
 	"github.com/xlabs/tss-lib/v2/party"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 type uuid digest // distinguishing between types to avoid confusion.
@@ -138,19 +138,8 @@ func (id *Identity) portAndHostToNetName() string {
 }
 
 func (id *Identity) getPidCopy() *common.PartyID {
-	keyCpy := make([]byte, len(id.Pid.Key))
-	copy(keyCpy, id.Pid.Key)
-
 	// return a copy, tss-lib might modify this object.
-	return &common.PartyID{
-		MessageWrapper_PartyID: &common.MessageWrapper_PartyID{
-			Id:      id.Pid.Id,
-			Moniker: id.Pid.Moniker,
-			Key:     keyCpy,
-		},
-
-		Index: id.Pid.Index,
-	}
+	return proto.CloneOf(id.Pid)
 }
 
 type Identities struct {
@@ -217,40 +206,6 @@ func (t *Engine) ProducedSignature() <-chan *common.SignatureData {
 // ProducedOutputMessages ensures a listener can send the output messages to the network.
 func (t *Engine) ProducedOutputMessages() <-chan Sendable {
 	return t.messageOutChan
-}
-
-func (st *GuardianStorage) fetchPartyIdFromBytes(pk []byte) *Identity {
-	pos, ok := st.Guardians.pemkeyToGuardian[string(pk)]
-	if !ok {
-		return nil
-	}
-
-	return st.Guardians.Identities[pos]
-}
-
-// FetchPartyId implements ReliableTSS.
-func (st *GuardianStorage) FetchPartyId(cert *x509.Certificate) (*Identity, error) {
-	var id *Identity
-
-	switch key := cert.PublicKey.(type) {
-	case *ecdsa.PublicKey:
-		publicKeyPem, err := internal.PublicKeyToPem(key)
-		if err != nil {
-			return nil, err
-		}
-
-		id = st.fetchPartyIdFromBytes(publicKeyPem)
-	case []byte:
-		id = st.fetchPartyIdFromBytes(key)
-	default:
-		return nil, fmt.Errorf("unsupported public key type")
-	}
-
-	if id == nil {
-		return nil, fmt.Errorf("certificate owner is unknown")
-	}
-
-	return id, nil
 }
 
 // GetCertificate implements ReliableTSS.
@@ -366,9 +321,10 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 func (t *Engine) getCommitteeNames(pids []*common.PartyID) []string {
 	ids := make([]string, 0, len(pids))
 	for _, pid := range pids {
-		id := t.GuardianStorage.getIdentityFromPartyID(pid)
+		id := t.GuardianStorage.fetchIdentityFromPartyID(pid)
 		if id == nil {
 			t.logger.Warn("couldn't find identity for partyID", zap.Any("partyID", pid))
+
 			continue
 		}
 
@@ -473,9 +429,9 @@ func NewReliableTSS(storage *GuardianStorage) (ReliableTSS, error) {
 	}
 
 	fpParams := &party.Parameters{
-		InitConfigs: storage.frostconf,
-		PartyIDs:    storage.Guardians.partyIds,
-		Self:        storage.Self.Pid,
+		FrostSecrets: storage.frostconf,
+		PartyIDs:     storage.Guardians.partyIds,
+		Self:         storage.Self.Pid,
 
 		MaxSignerTTL:         storage.MaxSignerTTL,
 		LoadDistributionSeed: storage.LoadDistributionKey,
@@ -564,6 +520,7 @@ func (t *Engine) Start(ctx context.Context) error {
 }
 
 func (t *Engine) GetPublicKey() curve.Point {
+	// TODO: Leads to RACE! the public key should be a copy, not the actual pk.
 	return t.fp.GetPublic()
 }
 
@@ -794,7 +751,7 @@ func (t *Engine) intoSendable(m common.Message) (Sendable, error) {
 	} else {
 		recipients := make([]*Identity, 0, len(routing.To))
 		for _, pId := range routing.To {
-			recipients = append(recipients, t.GuardianStorage.fetchPartyIdFromBytes(pId.Key))
+			recipients = append(recipients, t.GuardianStorage.fetchIdentityFromPartyID(pId))
 		}
 
 		sendable = &Unicast{
@@ -908,7 +865,7 @@ func (t *Engine) feedIncomingToFp(parsed common.ParsedMessage) error {
 	trackId := parsed.WireMsg().TrackingID
 	from := parsed.GetFrom()
 
-	id := t.GuardianStorage.getIdentityFromPartyID(from)
+	id := t.GuardianStorage.fetchIdentityFromPartyID(from)
 	if id == nil {
 		return fmt.Errorf("received message from unknown guardian: %v", from) // shouldn't happen.
 	}

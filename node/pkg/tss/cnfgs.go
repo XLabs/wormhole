@@ -111,7 +111,7 @@ func (s *GuardianStorage) SetInnerFields() error {
 		s.Guardians.partyIds[i] = s.Guardians.Identities[i].Pid
 		s.Guardians.pemkeyToGuardian[string(s.Guardians.Identities[i].KeyPEM)] = i
 		s.Guardians.indexToIdendity[SenderIndex(i)] = i
-		s.Guardians.partyIDToIdentity[s.Guardians.Identities[i].Pid.Id] = i
+		s.Guardians.partyIDToIdentity[s.Guardians.Identities[i].Pid.GetID()] = i
 	}
 
 	if s.LeaderIdentity == nil {
@@ -128,7 +128,6 @@ func (s *GuardianStorage) SetInnerFields() error {
 // ensures no nil values are stored. Verifies that the tss-lib.PartyIDs are unique.
 func (s *GuardianStorage) fillAndValidateStoredIdentities() error {
 	uniquePidIDs := make(map[string]struct{})
-	uniquePidKey := make(map[string]struct{})
 
 	for i, id := range s.Guardians.Identities {
 		if id == nil {
@@ -140,40 +139,33 @@ func (s *GuardianStorage) fillAndValidateStoredIdentities() error {
 			return fmt.Errorf("error parsing guardian %v: %w", i, err)
 		}
 
-		pem, err := internal.PublicKeyToPem(key)
-		if err != nil {
-			return fmt.Errorf("error converting guardian %v  cert's PK  to pem: %v", i, err)
-		}
-
 		if id.Pid == nil {
 			return fmt.Errorf("error guardian %v PartyID is nil", i)
-		}
-
-		if !bytes.Equal(id.Pid.Key, pem) {
-			return fmt.Errorf("error guardian %v cert's PK does not match the PartyID.Key stored", i)
 		}
 
 		if len(id.Hostname) == 0 {
 			return fmt.Errorf("error guardian %v hostname is empty", i)
 		}
 
-		if len(id.Pid.Id) == 0 {
+		if len(id.Pid.GetID()) == 0 {
 			return fmt.Errorf("error guardian %v PartyID.Id is empty", i)
 		}
 
-		if _, ok := uniquePidIDs[id.Pid.Id]; ok {
+		if _, ok := uniquePidIDs[id.Pid.GetID()]; ok {
 			return fmt.Errorf("error guardian %v PartyID.Id is not unique", i)
 		}
-		uniquePidIDs[id.Pid.Id] = struct{}{}
-
-		if _, ok := uniquePidKey[string(id.Pid.Key)]; ok {
-			return fmt.Errorf("error guardian %v PartyID.Key is not unique", i)
-		}
-		uniquePidKey[string(id.Pid.Key)] = struct{}{}
+		uniquePidIDs[id.Pid.GetID()] = struct{}{}
 
 		// storing the cert and key in the identity struct.
 		id.Key = key
 		id.Cert = c
+
+		keypem, err := internal.PublicKeyToPem(key)
+		if err != nil {
+			return fmt.Errorf("error converting guardian %v  cert's PK  to pem: %v", i, err)
+		}
+
+		id.KeyPEM = keypem
 
 		id.CommunicationIndex = SenderIndex(i)
 		id.networkname = id.portAndHostToNetName()
@@ -211,7 +203,7 @@ func (s *GuardianStorage) contains(sender SenderIndex) bool {
 	return ok
 }
 
-func (s *GuardianStorage) getPartyIdFromIndex(senderId SenderIndex) *common.PartyID {
+func (s *GuardianStorage) fetchPartyIdFromIndex(senderId SenderIndex) *common.PartyID {
 	pos, ok := s.Guardians.indexToIdendity[senderId]
 	if !ok {
 		return nil
@@ -220,11 +212,45 @@ func (s *GuardianStorage) getPartyIdFromIndex(senderId SenderIndex) *common.Part
 	return s.Guardians.Identities[pos].getPidCopy()
 }
 
-func (s *GuardianStorage) getIdentityFromPartyID(senderPid *common.PartyID) *Identity {
-	pos, ok := s.Guardians.partyIDToIdentity[senderPid.GetId()]
+func (s *GuardianStorage) fetchIdentityFromPartyID(senderPid *common.PartyID) *Identity {
+	pos, ok := s.Guardians.partyIDToIdentity[senderPid.GetID()]
 	if !ok {
 		return nil
 	}
 
 	return s.Guardians.Identities[pos]
+}
+
+func (st *GuardianStorage) fetchIdentityFromKeyPEM(pk PEM) *Identity {
+	pos, ok := st.Guardians.pemkeyToGuardian[string(pk)]
+	if !ok {
+		return nil
+	}
+
+	return st.Guardians.Identities[pos]
+}
+
+// FetchIdentity implements ReliableTSS.
+func (st *GuardianStorage) FetchIdentity(cert *x509.Certificate) (*Identity, error) {
+	var id *Identity
+
+	switch key := cert.PublicKey.(type) {
+	case *ecdsa.PublicKey:
+		publicKeyPem, err := internal.PublicKeyToPem(key)
+		if err != nil {
+			return nil, err
+		}
+
+		id = st.fetchIdentityFromKeyPEM(publicKeyPem)
+	case []byte:
+		id = st.fetchIdentityFromKeyPEM(key)
+	default:
+		return nil, fmt.Errorf("unsupported public key type")
+	}
+
+	if id == nil {
+		return nil, fmt.Errorf("certificate owner is unknown")
+	}
+
+	return id, nil
 }

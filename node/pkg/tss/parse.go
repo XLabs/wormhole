@@ -25,7 +25,7 @@ func (t *Engine) parseBroadcast(m Incoming) (broadcastMessage, error) {
 			return nil, err
 		}
 
-		pid := t.GuardianStorage.getPartyIdFromIndex(senderId)
+		pid := t.GuardianStorage.fetchPartyIdFromIndex(senderId)
 
 		p, err := common.ParseWireMessage(v.TssContent.Payload, pid, true)
 		if err != nil {
@@ -86,7 +86,7 @@ func (t *Engine) parseTssContent(m *tsscommv1.TssContent, source *Identity) (*pa
 	parsed := &parsedTssContent{p, ""}
 
 	// ensuring the reported source of the message matches the claimed source. (parsed.GetFrom() used by the tss-lib)
-	if !equalPartyIds(parsed.GetFrom(), spid) {
+	if !spid.Equals(parsed.GetFrom()) {
 		return parsed, fmt.Errorf("parsed message sender doesn't match the source of the message")
 	}
 

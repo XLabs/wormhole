@@ -334,7 +334,7 @@ func (p *Processor) handleInboundSignedVAAWithQuorum(m *gossipv1.SignedVAAWithQu
 
 	var verificationPublic vaa.PublicKeys = keys
 	if v.Version == vaa.TSSVaaVersion {
-		verificationPublic = p.thresholdSigner.GetEthAddress()
+		verificationPublic = p.thresholdSigner.GetPublicKey()
 	}
 
 	if err := v.Verify(verificationPublic); err != nil {

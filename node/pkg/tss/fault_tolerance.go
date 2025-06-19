@@ -117,7 +117,7 @@ func (t *Engine) sigTracker() {
 	}
 
 	for _, pid := range t.GuardianStorage.Guardians.partyIds {
-		strPid := strPartyId(partyIdToString(pid))
+		strPid := strPartyId(pid.ToString())
 		f.membersData[strPid] = &ftParty{
 			partyID:        pid,
 			ftChainContext: map[vaa.ChainID]*ftChainContext{},
@@ -267,7 +267,7 @@ func (cmd *signCommand) apply(t *Engine, f *sigTracker) {
 	state.approvedToSign = true
 
 	for _, pid := range cmd.SigningInfo.SigningCommittee {
-		m, ok := f.membersData[strPartyId(partyIdToString(pid))]
+		m, ok := f.membersData[strPartyId(pid.ToString())]
 		if !ok {
 			t.logger.Error("signCommand: party not found in the members data")
 

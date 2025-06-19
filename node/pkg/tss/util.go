@@ -50,10 +50,6 @@ func newSigCounter() activeSigCounter {
 	}
 }
 
-func idToString(id *common.PartyID) strPartyId {
-	return strPartyId(fmt.Sprintf("%s%x", id.Id, id.Key))
-}
-
 // Add adds a guardian to the counter for a given digest.
 // returns false if this guardian is active for too many signatures ( > maxActiveSignaturesPerGuardian).
 func (c *activeSigCounter) add(trackId *common.TrackingID, guardian *common.PartyID, maxActiveSignaturesPerGuardian int) bool {
@@ -70,7 +66,7 @@ func (c *activeSigCounter) add(trackId *common.TrackingID, guardian *common.Part
 		c.digestToGuardians[sgkey] = make(set[strPartyId])
 	}
 
-	strPartyId := idToString(guardian)
+	strPartyId := strPartyId(guardian.ToString())
 
 	if _, ok := c.guardianToDigests[strPartyId]; !ok {
 		c.guardianToDigests[strPartyId] = make(set[sigKey])
@@ -171,32 +167,12 @@ func logErr(l *zap.Logger, err error) {
 	l.Error(informativeErr.Error(), zapFields...)
 }
 
-func equalPartyIds(a, b *common.PartyID) bool {
-	return a.Id == b.Id && string(a.Key) == string(b.Key)
-}
-
 func protoToPartyId(pid *tsscommv1.PartyId) *common.PartyID {
-	return &common.PartyID{
-		MessageWrapper_PartyID: &common.MessageWrapper_PartyID{
-			Id:      pid.Id,
-			Moniker: pid.Moniker,
-			Key:     pid.Key,
-		},
-		Index: int(pid.Index),
-	}
+	return &common.PartyID{ID: pid.Id}
 }
 
 func partyIdToProto(pid *common.PartyID) *tsscommv1.PartyId {
-	return &tsscommv1.PartyId{
-		Id:      pid.Id,
-		Moniker: pid.Moniker,
-		Key:     pid.Key,
-		Index:   uint32(pid.Index),
-	}
-}
-
-func partyIdToString(guardian *common.PartyID) string {
-	return fmt.Sprintf("%s%x", guardian.Id, guardian.Key)
+	return &tsscommv1.PartyId{Id: pid.ID}
 }
 
 var (

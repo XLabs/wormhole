@@ -31,11 +31,12 @@ var cnfgPath = flag.String("cnfg", "", "path to config file in json format used 
 func main() {
 	flag.Parse()
 
-	if *cnfgPath == "" {
-		flag.PrintDefaults()
+	// if *cnfgPath == "" {
+	// 	flag.PrintDefaults()
 
-		return
-	}
+	// 	return
+	// }
+	*cnfgPath = "lkg.json"
 
 	f, err := os.ReadFile(*cnfgPath)
 	if err != nil {
@@ -171,7 +172,7 @@ func simulateDKG(all []*dkgPlayer, threshold int) {
 
 	privateShares := make(map[party.ID]curve.Scalar, len(all))
 	for _, p := range all {
-		id := party.ID(p.self.Pid.Id)
+		id := party.ID(p.self.Pid.GetID())
 
 		privateShares[id] = f.Evaluate(id.Scalar(group))
 	}
@@ -179,7 +180,7 @@ func simulateDKG(all []*dkgPlayer, threshold int) {
 	verificationShares := make(map[party.ID]curve.Point, len(all))
 
 	for _, p := range all {
-		id := party.ID(p.self.Pid.Id)
+		id := party.ID(p.self.Pid.GetID())
 
 		point := privateShares[id].ActOnBase()
 		verificationShares[id] = point
@@ -187,7 +188,7 @@ func simulateDKG(all []*dkgPlayer, threshold int) {
 
 	guardians := make([]*engine.GuardianStorage, len(all))
 	for i, p := range all {
-		id := party.ID(p.self.Pid.Id)
+		id := party.ID(p.self.Pid.GetID())
 
 		// can't be jsoned.
 		cnf := &frost.Config{
@@ -339,9 +340,9 @@ func setupPlayers(cnfg *LKGConfig) ([]*dkgPlayer, error) {
 
 		// peerContext := tss.NewPeerContext(sortedPids)
 
-		gspecific := mp[string(id.Pid.Key)]
+		gspecific := mp[string(id.Pid.GetID())]
 
-		all[id.CommunicationIndex] = &dkgPlayer{
+		p := &dkgPlayer{
 			self:                id,
 			whereToStore:        gspecific.WhereToSaveSecrets,
 			selfCert:            gspecific.Identifier.TlsX509,
@@ -351,6 +352,7 @@ func setupPlayers(cnfg *LKGConfig) ([]*dkgPlayer, error) {
 				Identities: sortedIDS,
 			},
 		}
+		all[id.CommunicationIndex] = p
 
 	}
 
@@ -369,7 +371,7 @@ func sortIdentities(unsortedIdentities map[string]*engine.Identity) []*engine.Id
 
 	sortedIDS := make([]*engine.Identity, len(sortedPids))
 	for i, pid := range sortedPids {
-		sortedIDS[i] = unsortedIdentities[string(pid.Key)]
+		sortedIDS[i] = unsortedIdentities[string(pid.GetID())]
 		sortedIDS[i].CommunicationIndex = engine.SenderIndex(i)
 	}
 
@@ -404,12 +406,7 @@ func (cnfg *LKGConfig) intoMaps() (unsortedIdentities map[string]*engine.Identit
 
 		unsortedIdentities[string(bts)] = &engine.Identity{
 			Pid: &common.PartyID{
-				MessageWrapper_PartyID: &common.MessageWrapper_PartyID{
-					Id:      string(bts), // using the key as the ID. Previously used the DNS name, but we've upgraded to ids to include hostname.
-					Moniker: "",          // not importent.
-					Key:     bts,
-				},
-				Index: -1, // not known until sorted
+				ID: string(bts),
 			},
 			KeyPEM:             bts,
 			CertPem:            dt.Identifier.TlsX509,
