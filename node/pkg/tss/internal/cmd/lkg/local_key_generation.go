@@ -114,55 +114,6 @@ func Run(cnfg *LKGConfig) {
 	simulateDKG(all, cnfg.WantedThreshold)
 }
 
-// func mustPassMessage(newMsg tss.Message, keyToParty map[string]tss.Party) {
-// 	bz, routing, err := newMsg.WireBytes()
-// 	if err != nil {
-// 		panic("Couldn't pass message to party. err: " + err.Error())
-// 	}
-
-// 	// parsedMsg doesn't contain routing, since it assumes this message arrive for this participant from outside.
-// 	// as a result we'll use the routing of the wireByte msgs.
-// 	parsedMsg, err := tss.ParseWireMessage(bz, routing.From, routing.IsBroadcast)
-// 	if err != nil {
-// 		panic("Couldn't pass message to party. err: " + err.Error())
-// 	}
-
-// 	if routing.IsBroadcast || routing.To == nil {
-// 		for pID, p := range keyToParty {
-// 			if string(routing.From.GetKey()) == pID {
-// 				continue
-// 			}
-
-// 			mustFeedParty(p, parsedMsg)
-// 		}
-
-// 		return
-// 	}
-
-// 	for _, id := range routing.To {
-// 		p := keyToParty[string(id.GetKey())]
-// 		mustFeedParty(p, parsedMsg)
-// 	}
-// }
-
-// func mustFeedParty(p tss.Party, parsedMsg tss.ParsedMessage) {
-// 	if p == nil {
-// 		panic("party is nil")
-// 	}
-// 	if parsedMsg == nil {
-// 		panic("parsedMsg is nil")
-// 	}
-
-// 	ok, err := p.Update(parsedMsg)
-// 	if err != nil {
-// 		panic("Couldn't pass message to party. err: " + err.Error())
-// 	}
-
-// 	if !ok {
-// 		panic("Couldn't update party with message")
-// 	}
-// }
-
 // this function simulates the results of running a DKG protocol.
 func simulateDKG(all []*dkgPlayer, threshold int) {
 	group := curve.Secp256k1{}
@@ -218,45 +169,6 @@ func simulateDKG(all []*dkgPlayer, threshold int) {
 		}
 	}
 
-	// store the secrets to disk.
-
-	// 	done := 0
-
-	// 	// Mapping to easily find the party a message is addressed to based on the key (unique).
-	// 	keyToParty := map[string]tss.Party{}
-	// 	for _, player := range all {
-	// 		keyToParty[string(player.self.Pid.Key)] = player.localParty
-	// 	}
-
-	// keygenLoop:
-	// 	for {
-	// 		bagOfMessages := make([]tss.Message, 0, len(all))
-	// 		for _, player := range all {
-	// 			select {
-	// 			case newMsg := <-player.out:
-	// 				bagOfMessages = append(bagOfMessages, newMsg)
-
-	// 			case m := <-player.protocolEndOutput:
-	// 				player.handleKeygenEndMessage(m, guardians)
-	// 				done += 1
-	// 				fmt.Println(done)
-
-	// 			default: // avoid blockage.
-	// 			}
-
-	// 			if done >= len(all) {
-	// 				break keygenLoop
-	// 			}
-	// 		}
-
-	// 		if len(bagOfMessages) > 0 {
-	// 			fmt.Println("passing messages to guardians", len(bagOfMessages))
-	// 		}
-	// 		for _, msg := range bagOfMessages {
-	// 			mustPassMessage(msg, keyToParty)
-	// 		}
-	// 	}
-
 	fmt.Println("All guardians have finished the protocol. Saving the secrets to disk.")
 
 	for i, guardian := range guardians {
@@ -278,26 +190,9 @@ func simulateDKG(all []*dkgPlayer, threshold int) {
 		if err := os.WriteFile(fname, bts, 0777); err != nil {
 			panic("Failed to write to disk: " + err.Error())
 		}
-
-		// validate each can be loaded:
-		// gst, err := engine.NewGuardianStorageFromFile(fname)
-		// if err != nil {
-		// 	panic(fmt.Sprintf("Failed to load guardian %d from file %s: %v", i, fname, err))
-		// }
-		// fmt.Println(gst)
 	}
 
 }
-
-// func (cnfg *LKGConfig) find(tlsX509 []byte) *GuardianSpecifics {
-// 	for _, g := range cnfg.GuardianSpecifics {
-// 		if string(g.Identifier.TlsX509) == string(tlsX509) {
-// 			return &g
-// 		}
-// 	}
-
-// 	return nil
-// }
 
 func (cnfg *LKGConfig) validate() error {
 	if cnfg.NumParticipants < 1 {
@@ -359,8 +254,8 @@ func setupPlayers(cnfg *LKGConfig) ([]*dkgPlayer, error) {
 	return all, nil
 }
 
-// // sorts the identities based on the partyID key (as tss-lib expects the parties to be sorted).
-// // then sets the communication index according to the sorted order.
+// sorts the identities based on the partyID key (as tss-lib expects the parties to be sorted).
+// then sets the communication index according to the sorted order.
 func sortIdentities(unsortedIdentities map[string]*engine.Identity) []*engine.Identity {
 	pids := make([]*common.PartyID, 0, len(unsortedIdentities))
 	for _, p := range unsortedIdentities {
@@ -438,31 +333,3 @@ func extractDnsFromCert(crt *x509.Certificate) string {
 
 	return dnsName
 }
-
-// func (player *dkgPlayer) setNewKeygenHandler() {
-// 	n := player.ids.Len()
-// 	out := make(chan tss.Message, n*n*2)               // ready for at least n^2 messages.
-// 	endOut := make(chan *keygen.LocalPartySaveData, 1) // ready for at least a single message.
-
-// 	player.localParty = keygen.NewLocalParty(player.Parameters, out, endOut)
-// 	player.out = out
-// 	player.protocolEndOutput = endOut
-// }
-
-// func (player *dkgPlayer) handleKeygenEndMessage(m *keygen.LocalPartySaveData, guardians []*engine.GuardianStorage) {
-// 	i, err := m.OriginalIndex()
-// 	if err != nil {
-// 		panic(err)
-// 	}
-
-// 	guardians[i] = &engine.GuardianStorage{
-// 		Configurations:        engine.Configurations{}, // filled by the deployer.
-// 		Self:                  player.self,
-// 		TlsX509:               engine.PEM(player.selfCert),
-// 		PrivateKey:            nil, // each guardian should load this by themselves.
-// 		Guardians:             player.ids,
-// 		Threshold:             player.Threshold(),
-// 		SavedSecretParameters: m,
-// 		LoadDistributionKey:   player.loadDistributionKey,
-// 	}
-// }

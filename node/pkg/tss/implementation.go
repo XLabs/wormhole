@@ -80,6 +80,8 @@ type Configurations struct {
 	// LeaderIdentity is used by the TSS engine protocol to determine who is responsible for telling
 	// the other guardians about a new VAAv1.
 	LeaderIdentity PEM // The public key of the leader in PEM format.
+
+	Debug bool // if true, will log additional information.
 }
 
 type Identity struct {
@@ -518,7 +520,6 @@ func (t *Engine) Start(ctx context.Context) error {
 }
 
 func (t *Engine) GetPublicKey() curve.Point {
-	// TODO: Leads to RACE! the public key should be a copy, not the actual pk.
 	return t.fp.GetPublic()
 }
 
@@ -835,8 +836,6 @@ func (t *Engine) makeEcho(m Incoming, parsed broadcastMessage) *Echo {
 	return ech
 }
 
-// var errBadRoundsInBroadcast = fmt.Errorf("cannot receive broadcast for rounds: %v,%v", round1Message1, round2Message)
-
 func (t *Engine) handleBroadcast(m Incoming) error {
 	parsed, err := t.parseBroadcast(m)
 	if err != nil {
@@ -871,9 +870,17 @@ func (t *Engine) feedIncomingToFp(parsed common.ParsedMessage) error {
 	maxLiveSignatures := t.GuardianStorage.maxSimultaneousSignatures
 
 	if ok := t.sigCounter.add(trackId, from, maxLiveSignatures); ok {
-		_, err := t.fp.Update(parsed) // TODO: consider waiting on the update to finish, and log it. (perhaps in debug mode only).
+		promise, err := t.fp.Update(parsed) // TODO: consider waiting on the update to finish, and log it. (perhaps in debug mode only).
 		if err != nil {
 			return fmt.Errorf("failed to update full party with incoming message: %w", err)
+		}
+
+		if t.Configurations.Debug {
+			t.logger.Debug("updated full party with incoming message",
+				zap.String("trackingId", trackId.ToString()),
+				zap.String("from", id.Hostname),
+				zap.Any("meta", <-promise), // this is the meta data returned by the full party.
+			)
 		}
 
 		return nil
@@ -921,14 +928,16 @@ func (t *Engine) handleUnicastTSS(v *tsscommv1.Unicast_Tss, src *Identity) error
 		return err
 	}
 
-	if err = t.validateUnicastDoesntExist(fpmsg); err == errUnicastAlreadyReceived {
-		return nil
-	} else if err != nil {
-		return fpmsg.wrapError(fmt.Errorf("failed to ensure no equivication present in unicast: %w, sender:%v", err, src.Hostname))
-	}
-
 	if isBroadcastMsg(fpmsg) {
 		return fmt.Errorf("received broadcast type message in unicast: %v", fpmsg)
+	}
+
+	err = t.validateUnicastDoesntExist(fpmsg)
+	if err == errUnicastAlreadyReceived {
+		return nil
+	}
+	if err != nil {
+		return fpmsg.wrapError(fmt.Errorf("failed to ensure no equivication present in unicast: %w, sender:%v", err, src.Hostname))
 	}
 
 	if err := t.feedIncomingToFp(fpmsg); err != nil {

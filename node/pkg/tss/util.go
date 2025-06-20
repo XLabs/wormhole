@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 
@@ -167,14 +166,6 @@ func logErr(l *zap.Logger, err error) {
 	l.Error(informativeErr.Error(), zapFields...)
 }
 
-func protoToPartyId(pid *tsscommv1.PartyId) *common.PartyID {
-	return &common.PartyID{ID: pid.Id}
-}
-
-func partyIdToProto(pid *common.PartyID) *tsscommv1.PartyId {
-	return &tsscommv1.PartyId{Id: pid.ID}
-}
-
 var (
 	ErrBroadcastIsNil     = fmt.Errorf("broadcast is nil")
 	ErrNilPartyId         = fmt.Errorf("party id is nil")
@@ -246,32 +237,19 @@ func validateContentCorrectForm(m *tsscommv1.TssContent) error {
 type signingRound string
 
 const (
-	// round1Message1 signingRound = "round1M1"
-	// round1Message2 signingRound = "round1M2"
+	round1Message signingRound = "round1"
 	round2Message signingRound = "round2"
 	round3Message signingRound = "round3"
-	// round4Message  signingRound = "round4"
-	// round5Message  signingRound = "round5"
-	// round6Message  signingRound = "round6"
-	// round7Message  signingRound = "round7"
-	// round8Message  signingRound = "round8"
-	// round9Message  signingRound = "round9"
 )
 
 var _intToRoundArr = []signingRound{
-	"round1",
+	round1Message,
 	round2Message,
 	round3Message,
-	// round4Message,
-	// round5Message,
-	// round6Message,
-	// round7Message,
-	// round8Message,
-	// round9Message,
 }
 
 func intToRound(i int) signingRound {
-	if i < 1 || i > 9 {
+	if i < 0 || i > 2 {
 		return ""
 	}
 
@@ -379,10 +357,6 @@ func trackingIdIntoSigKey(tid *common.TrackingID) sigKey {
 }
 
 type SenderIndex uint32
-
-func (s SenderIndex) intoBuffer(b io.Writer) {
-	vaa.MustWrite(b, binary.BigEndian, s)
-}
 
 func (s SenderIndex) toProto() uint32 {
 	return uint32(s)
