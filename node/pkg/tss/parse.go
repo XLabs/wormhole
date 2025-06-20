@@ -25,9 +25,12 @@ func (t *Engine) parseBroadcast(m Incoming) (broadcastMessage, error) {
 			return nil, err
 		}
 
-		pid := t.GuardianStorage.fetchPartyIdFromIndex(senderId)
+		id, err := t.GuardianStorage.fetchIdentityFromIndex(senderId)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't fetch identity from index %d: %w", senderId, err)
+		}
 
-		p, err := common.ParseWireMessage(v.TssContent.Payload, pid, true)
+		p, err := common.ParseWireMessage(v.TssContent.Payload, id.Pid, true)
 		if err != nil {
 			return nil, err
 		}

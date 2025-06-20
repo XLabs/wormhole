@@ -205,8 +205,13 @@ func (t *Engine) updateState(s *broadcaststate, parsed broadcastMessage, unparse
 	unparsedSignedMessage := unparsedContent.toBroadcastMsg().Message
 	echoer := unparsedContent.GetSource()
 
-	pid := t.GuardianStorage.fetchPartyIdFromIndex(SenderIndex(unparsedSignedMessage.Sender))
-	isMsgSrc := pid.Equals(echoer.Pid)
+	senderIndex := SenderIndex(unparsedSignedMessage.Sender)
+	id, err := t.GuardianStorage.fetchIdentityFromIndex(senderIndex)
+	if err != nil {
+		return false, fmt.Errorf("failed to fetch sender identity: %w", err)
+	}
+
+	isMsgSrc := id.Pid.Equals(echoer.Pid)
 
 	_, isEcho := unparsedSignedMessage.Content.(*tsscommv1.SignedMessage_HashEcho)
 
@@ -301,12 +306,14 @@ func (t *Engine) validateBroadcastState(s *broadcaststate, parsed broadcastMessa
 
 	// only non-echo messages should have the same sender as the source. (Echo messages should have different source then original sender).
 	if _, ok := parsed.(deliverable); ok {
-		senderPid := t.GuardianStorage.fetchPartyIdFromIndex(SenderIndex(unparsedSignedMessage.Sender))
-		if senderPid == nil {
-			return fmt.Errorf("sender %v is not a guardian", unparsedSignedMessage.Sender)
+		index := SenderIndex(unparsedSignedMessage.Sender)
+
+		senderID, err := t.GuardianStorage.fetchIdentityFromIndex(index)
+		if err != nil {
+			return fmt.Errorf("failed to fetch sender identity: %w", err)
 		}
 
-		if !senderPid.Equals(src.Pid) {
+		if !senderID.Pid.Equals(src.Pid) {
 			return fmt.Errorf("any non echo message should have the same sender as the source")
 		}
 	}

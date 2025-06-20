@@ -103,14 +103,12 @@ func (s *GuardianStorage) SetInnerFields() error {
 	s.Guardians.peerCerts = make([]*x509.Certificate, s.Guardians.Len())
 	s.Guardians.partyIds = make([]*common.PartyID, s.Guardians.Len())
 	s.Guardians.pemkeyToGuardian = make(map[string]int)
-	s.Guardians.indexToIdendity = make(map[SenderIndex]int)
 	s.Guardians.partyIDToIdentity = make(map[string]int)
 	// Since the guardians are sorted by key, we can use their position as their index.
 	for i := range s.Guardians.Len() {
 		s.Guardians.peerCerts[i] = s.Guardians.Identities[i].Cert
 		s.Guardians.partyIds[i] = s.Guardians.Identities[i].Pid
 		s.Guardians.pemkeyToGuardian[string(s.Guardians.Identities[i].KeyPEM)] = i
-		s.Guardians.indexToIdendity[SenderIndex(i)] = i
 		s.Guardians.partyIDToIdentity[s.Guardians.Identities[i].Pid.GetID()] = i
 	}
 
@@ -188,37 +186,8 @@ func extractCertAndKeyFromPem(pem PEM) (*x509.Certificate, *ecdsa.PublicKey, err
 	return c, key, nil
 }
 
-func (s *GuardianStorage) fetchCertificate(sender SenderIndex) (*x509.Certificate, error) {
-	pos, ok := s.Guardians.indexToIdendity[sender]
-	if !ok {
-		return nil, ErrUnkownSender
-	}
-
-	return s.Guardians.Identities[pos].Cert, nil
-}
-
-func (s *GuardianStorage) contains(sender SenderIndex) bool {
-	_, ok := s.Guardians.indexToIdendity[sender]
-
-	return ok
-}
-
-func (s *GuardianStorage) fetchPartyIdFromIndex(senderId SenderIndex) *common.PartyID {
-	pos, ok := s.Guardians.indexToIdendity[senderId]
-	if !ok {
-		return nil
-	}
-
-	return s.Guardians.Identities[pos].getPidCopy()
-}
-
 func (s *GuardianStorage) fetchIdentityFromPartyID(senderPid *common.PartyID) *Identity {
-	pos, ok := s.Guardians.partyIDToIdentity[senderPid.GetID()]
-	if !ok {
-		return nil
-	}
-
-	return s.Guardians.Identities[pos]
+	return s.fetchIdentityFromKeyPEM(PEM(senderPid.GetID()))
 }
 
 func (st *GuardianStorage) fetchIdentityFromKeyPEM(pk PEM) *Identity {
@@ -253,4 +222,20 @@ func (st *GuardianStorage) FetchIdentity(cert *x509.Certificate) (*Identity, err
 	}
 
 	return id, nil
+}
+
+func (s *GuardianStorage) contains(senderId SenderIndex) bool {
+	if senderId < 0 || int(senderId) >= len(s.Guardians.Identities) {
+		return false
+	}
+
+	return true
+}
+
+func (s *GuardianStorage) fetchIdentityFromIndex(senderId SenderIndex) (*Identity, error) {
+	if !s.contains(senderId) {
+		return nil, ErrUnkownSender
+	}
+
+	return s.Guardians.Identities[senderId], nil
 }

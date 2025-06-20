@@ -143,13 +143,13 @@ func (id *Identity) getPidCopy() *common.PartyID {
 }
 
 type Identities struct {
+	// sorted by KeyPem.
 	Identities []*Identity
 
 	// maps and slices to ensure quick lookups.
-	indexToIdendity   map[SenderIndex]int
 	partyIDToIdentity map[string]int // maps PartyID.Id to the index in Identities.
 	pemkeyToGuardian  map[string]int
-	peerCerts         []*x509.Certificate // avoid
+	peerCerts         []*x509.Certificate
 	partyIds          []*common.PartyID
 }
 
@@ -171,8 +171,6 @@ type GuardianStorage struct {
 	tlsCert    *tls.Certificate
 	signingKey *ecdsa.PrivateKey // should be the unmarshalled value of PriavteKey.
 
-	// Stored sorted by Key. include Self.
-	// Guardians []*common.PartyID
 	Guardians Identities
 
 	// Assumes threshold = 2f+1, where f is the maximal expected number of faulty nodes.
@@ -1007,12 +1005,12 @@ func (st *GuardianStorage) verifySignedMessage(uid uuid, msg *tsscommv1.SignedMe
 		return errEmptySignature
 	}
 
-	cert, err := st.fetchCertificate(SenderIndex(msg.Sender))
+	id, err := st.fetchIdentityFromIndex(SenderIndex(msg.Sender))
 	if err != nil {
 		return err
 	}
 
-	pk, ok := cert.PublicKey.(*ecdsa.PublicKey)
+	pk, ok := id.Cert.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return fmt.Errorf("certificated stored with non-ecdsa public key, guardian storage is corrupted")
 	}

@@ -576,7 +576,7 @@ func TestBadInputs(t *testing.T) {
 	})
 
 	t.Run("fetch certificate", func(t *testing.T) {
-		_, err := e1.fetchCertificate(SenderIndex(e1.GuardianStorage.Guardians.Len() + 1))
+		_, err := e1.fetchIdentityFromIndex(SenderIndex(e1.GuardianStorage.Guardians.Len() + 1))
 		a.ErrorIs(err, ErrUnkownSender)
 	})
 
