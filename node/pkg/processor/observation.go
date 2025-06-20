@@ -298,7 +298,14 @@ func (p *Processor) handleInboundSignedVAAWithQuorum(m *gossipv1.SignedVAAWithQu
 	}
 
 	if v.Version == vaa.VaaVersion1 {
-		p.thresholdSigner.WitnessNewVaa(v)
+
+		shallowCopy := *v
+		shallowCopy.Version = vaa.TSSVaaVersion
+
+		// If we don't have VaaV2, we witness the VaaV1, so a leader can push an order to sign VaaV2.
+		if !p.haveSignedVAA(*db.VaaIDFromVAA(&shallowCopy)) {
+			p.thresholdSigner.WitnessNewVaa(v)
+		}
 	}
 
 	// Check if we already store this VAA
