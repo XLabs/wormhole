@@ -80,8 +80,6 @@ type Configurations struct {
 	// LeaderIdentity is used by the TSS engine protocol to determine who is responsible for telling
 	// the other guardians about a new VAAv1.
 	LeaderIdentity PEM // The public key of the leader in PEM format.
-
-	Debug bool // if true, will log additional information.
 }
 
 type Identity struct {
@@ -870,17 +868,9 @@ func (t *Engine) feedIncomingToFp(parsed common.ParsedMessage) error {
 	maxLiveSignatures := t.GuardianStorage.maxSimultaneousSignatures
 
 	if ok := t.sigCounter.add(trackId, from, maxLiveSignatures); ok {
-		promise, err := t.fp.Update(parsed) // TODO: consider waiting on the update to finish, and log it. (perhaps in debug mode only).
+		_, err := t.fp.Update(parsed)
 		if err != nil {
 			return fmt.Errorf("failed to update full party with incoming message: %w", err)
-		}
-
-		if t.Configurations.Debug {
-			t.logger.Debug("updated full party with incoming message",
-				zap.String("trackingId", trackId.ToString()),
-				zap.String("from", id.Hostname),
-				zap.Any("meta", <-promise), // this is the meta data returned by the full party.
-			)
 		}
 
 		return nil
@@ -890,8 +880,6 @@ func (t *Engine) feedIncomingToFp(parsed common.ParsedMessage) error {
 
 	return fmt.Errorf("guardian %v has reached the maximum number of simultaneous signatures", id.Hostname)
 }
-
-var errUnicastBadRound = fmt.Errorf("bad round for unicast (can accept round1Message1 and round2Message)")
 
 // handleUnicast is responsible to handle any incoming unicast messages.
 func (t *Engine) handleUnicast(m Incoming) error {
