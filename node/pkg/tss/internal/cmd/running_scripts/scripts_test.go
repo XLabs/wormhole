@@ -72,16 +72,24 @@ var hostnames = []string{
 const saveFile = "../lkg/lkg.json"
 const specificKeysFolder = "5-servers"
 
-func TestCreateLKGConfigs(t *testing.T) {
-	CreateLKGConfigs(t)
-}
+func TestMain(t *testing.T) {
+	t.Skip("skipping main test, use specific tests instead")
 
-func TestShoveKeysToPosition(t *testing.T) {
-	shoveKeys(t)
+	t.Run("CreateLKGConfigs", createLKGConfigs)
+
+	t.Run("shoveKeysToPosition", shoveKeys)
+
+	t.Run("storeGuardiansForTest", storeTestGuardians)
+
+	t.Run("scpSecretsToServers", sendToServers)
 }
 
 func TestStoreKeysAsTestGuardians(t *testing.T) {
 	//remove existing guardian storage files.
+	storeTestGuardians(t)
+}
+
+func storeTestGuardians(t *testing.T) {
 	cnfg := loadConfigs(t)
 
 	mainFolder := "tss5"
@@ -150,11 +158,7 @@ func cleanResultFolder(t *testing.T, resultDir string) {
 	}
 }
 
-func TestScpToServer(t *testing.T) {
-	sendToServers(t)
-	// scp -i ~/.ssh/id_ed25519 asia-01/secrets.json jonathan@%v:~
-}
-
+// scp -i ~/.ssh/id_ed25519 asia-01/secrets.json jonathan@%v:~
 func sendToServers(t *testing.T) {
 	cnfg := loadConfigs(t)
 
@@ -277,7 +281,7 @@ func shoveKeys(t *testing.T) {
 	// })
 }
 
-func CreateLKGConfigs(t *testing.T) {
+func createLKGConfigs(t *testing.T) {
 	if _, err := os.Stat(saveFile); err == nil {
 		t.Fatalf("lkg.json already exists in lkg dir")
 	} else if !os.IsNotExist(err) {
