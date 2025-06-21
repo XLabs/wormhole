@@ -295,7 +295,7 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 	flds := []zap.Field{
 		zap.String("trackingID", info.TrackingID.ToString()),
 		zap.String("ChainID", chainID.String()),
-		zap.Any("committee", t.getCommitteeNames(info.SigningCommittee)),
+		zap.Any("committee", t.getCommitteeNetworkNames(info.SigningCommittee)),
 	}
 
 	t.logger.Info(
@@ -316,7 +316,7 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 	return nil
 }
 
-func (t *Engine) getCommitteeNames(pids []*common.PartyID) []string {
+func (t *Engine) getCommitteeNetworkNames(pids []*common.PartyID) []string {
 	ids := make([]string, 0, len(pids))
 	for _, pid := range pids {
 		id := t.GuardianStorage.fetchIdentityFromPartyID(pid)
@@ -326,7 +326,7 @@ func (t *Engine) getCommitteeNames(pids []*common.PartyID) []string {
 			continue
 		}
 
-		ids = append(ids, id.Hostname)
+		ids = append(ids, id.NetworkName())
 	}
 
 	return ids

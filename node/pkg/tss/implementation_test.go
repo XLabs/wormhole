@@ -458,10 +458,6 @@ func TestBadInputs(t *testing.T) {
 			_, _, err := e1.broadcastInspection(&deliverableMessage{&parsedTssContent{parsed1, ""}}, echo)
 			a.ErrorIs(err, ErrInvalidSignature)
 
-			// if rnd == round1Message1 || rnd == round2Message {
-			// 	continue
-			// }
-
 			echo.setSource(e1.Self)
 			err = e1.handleIncomingTssMessage(echo)
 			a.ErrorIs(err, ErrInvalidSignature)

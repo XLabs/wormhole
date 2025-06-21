@@ -31,12 +31,11 @@ var cnfgPath = flag.String("cnfg", "", "path to config file in json format used 
 func main() {
 	flag.Parse()
 
-	// if *cnfgPath == "" {
-	// 	flag.PrintDefaults()
+	if *cnfgPath == "" {
+		flag.PrintDefaults()
 
-	// 	return
-	// }
-	*cnfgPath = "lkg.json"
+		return
+	}
 
 	f, err := os.ReadFile(*cnfgPath)
 	if err != nil {
