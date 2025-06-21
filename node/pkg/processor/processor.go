@@ -383,6 +383,14 @@ func (p *Processor) storeSignedVAA(v *vaa.VAA) {
 	p.updateVAALock.Unlock()
 }
 
+// haveSignedVaav2 takes any vaaID, modifies it to check for existance of VAAv2 specifically.
+func (p *Processor) haveSignedVaav2(id guardianDB.VAAID) bool {
+	ver := uint8(vaa.TSSVaaVersion)
+	id.Version = &ver // Force the version to VAA2
+
+	return p.haveSignedVAA(id)
+}
+
 // haveSignedVAA returns true if we already have a VAA for the given VAAID
 func (p *Processor) haveSignedVAA(id guardianDB.VAAID) bool {
 	key := string(id.Bytes())
