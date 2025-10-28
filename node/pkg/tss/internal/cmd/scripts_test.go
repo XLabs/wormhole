@@ -22,6 +22,7 @@ import (
 
 	engine "github.com/certusone/wormhole/node/pkg/tss"
 	"github.com/certusone/wormhole/node/pkg/tss/internal"
+	common "github.com/xlabs/tss-common"
 )
 
 // create these from scrath, then store it into a single file.
@@ -59,9 +60,10 @@ const specificKeysFolder = "5-servers"
 var prepareForLocalDKG = false
 
 type dkgTest struct {
-	hostnames  []string
-	saveFolder string
-
+	hostnames                 []string
+	saveFolder                string
+	protocol                  common.ProtocolType
+	loadExisting              bool // load existing secrets.json to merge (assumes generated using createDKGConfigs)
 	forLocalDKG               bool
 	storeIntoInternalTestData bool
 }
@@ -95,10 +97,12 @@ func TestMain(t *testing.T) {
 
 	tt = dkgTest{
 		hostnames: hostnames,
+		protocol:  common.ProtocolECDSADKG,
 		// for ease of debug, not using full path.
 		saveFolder:                path.Join(getCurrentFilePath(t), "dkg"), // workingdir
+		loadExisting:              true,
 		forLocalDKG:               true,
-		storeIntoInternalTestData: true,
+		storeIntoInternalTestData: false,
 	}
 	t.Run("RunDKG", tt.RunDKG)
 
@@ -314,12 +318,17 @@ func (d dkgTest) RunDKG(t *testing.T) {
 	for i := range d.hostnames {
 		serverPath := "server.go"
 		configPath := strconv.Itoa(i) + ".json"
-		// call go run ./dkg --config=<configPath>
+		// call go run ./dkg -cnfg <configPath> -protocol <protocol>
 
 		args := []string{
 			"run",
 			serverPath,
 			"-cnfg", configPath,
+			"-protocol", d.protocol.ToString(),
+		}
+
+		if d.loadExisting {
+			args = append(args, "-secrets", path.Join(d.saveFolder, "guardian"+strconv.Itoa(i), "secrets.json"))
 		}
 
 		// in parallel

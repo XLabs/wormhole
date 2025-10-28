@@ -1265,8 +1265,8 @@ github.com/fsnotify/fsnotify v1.6.0 h1:n+5WquG0fcWoWp6xPWfHdbskMCQaFnG6PfBrh1Ky4
 github.com/fsnotify/fsnotify v1.6.0/go.mod h1:sl3t1tCWJFWoRz9R8WJCbQihKKwmorjAbSClcnxKAGw=
 github.com/fullsailor/pkcs7 v0.0.0-20190404230743-d7302db945fa/go.mod h1:KnogPXtdwXqoenmZCw6S+25EAm2MkxbG0deNDu4cbSA=
 github.com/fullstorydev/grpcurl v1.6.0/go.mod h1:ZQ+ayqbKMJNhzLmbpCiurTVlaK2M/3nqZCxaQ2Ze/sM=
-github.com/fxamacker/cbor/v2 v2.8.0 h1:fFtUGXUzXPHTIUdne5+zzMPTfffl3RD5qYnkY40vtxU=
-github.com/fxamacker/cbor/v2 v2.8.0/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
+github.com/fxamacker/cbor/v2 v2.9.0 h1:NpKPmjDBgUfBms6tr6JZkTHtfFGcMKsw3eGcmD/sapM=
+github.com/fxamacker/cbor/v2 v2.9.0/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/fzipp/gocyclo v0.5.1/go.mod h1:rXPyn8fnlpa0R2csP/31uerbiVBugk5whMdlyaLkLoA=
 github.com/fzipp/gocyclo v0.6.0/go.mod h1:rXPyn8fnlpa0R2csP/31uerbiVBugk5whMdlyaLkLoA=
 github.com/gagliardetto/binary v0.7.7 h1:QZpT38+sgoPg+TIQjH94sLbl/vX+nlIRA37pEyOsjfY=
@@ -3133,12 +3133,12 @@ github.com/xeipuuv/gojsonschema v0.0.0-20180618132009-1d523034197f/go.mod h1:5yf
 github.com/xeipuuv/gojsonschema v1.2.0/go.mod h1:anYRn/JVcOK2ZgGU+IjEV4nwlhoK5sQluxsYJ78Id3Y=
 github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8/go.mod h1:HUYIGzjTL3rfEspMxjDjgmT5uz5wzYJKVo23qUhYTos=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
-github.com/xlabs/multi-party-sig v0.0.2-0.20251008145440-ef00c6484b73 h1:MP649hemhNYpdOA/l6hXfqd8bwyBB8FPdZzCGlyo1SU=
-github.com/xlabs/multi-party-sig v0.0.2-0.20251008145440-ef00c6484b73/go.mod h1:NpqmP2W7AAEany+2usJbi0eadzytXVSoucwK1SQ89cs=
+github.com/xlabs/multi-party-sig v0.0.2-0.20251027070734-8ce22a563161 h1:tU9RVX6mgicH+GCpOZcuGzl5CBln3bTIcX8g6Uq/6Lg=
+github.com/xlabs/multi-party-sig v0.0.2-0.20251027070734-8ce22a563161/go.mod h1:JbrlubmmY8N5VK/V2xJqriA27HEfi79JkPp1TO0dvWE=
 github.com/xlabs/tss-common v0.0.0-20251006064114-b1fcd9c2ce8e h1:5PRcFPXMXmvPL4IBEA+h7Evvd2HziSMdcFKuXtiqugg=
 github.com/xlabs/tss-common v0.0.0-20251006064114-b1fcd9c2ce8e/go.mod h1:EBXV5kup1GsnVpEknaxXXpid87uN6Mh7NboAZhV+HNM=
-github.com/xlabs/tss-lib/v2 v2.0.0-20251008162257-d741b8e3b429 h1:zPlr1aiXP/dExYCLMasJy3IU+POVwOUQjQjMMXjN2uM=
-github.com/xlabs/tss-lib/v2 v2.0.0-20251008162257-d741b8e3b429/go.mod h1:P6bh6juLJXH/zm/lVAeDiF1g6gbrtBGHreo5PFZdDZM=
+github.com/xlabs/tss-lib/v2 v2.0.0-20251027091210-d9dae503b078 h1:nJ4xu5RrOH3nIHEwR8tzaTVRrfK/XYzMDEpYXVQBY0M=
+github.com/xlabs/tss-lib/v2 v2.0.0-20251027091210-d9dae503b078/go.mod h1:umKmt3RQUcXDp2CDG/2BQyJZf4hViKquiV3DZFWJeyE=
 github.com/xo/terminfo v0.0.0-20210125001918-ca9a967f8778/go.mod h1:2MuV+tbUrU1zIOPMxZ5EncGwgmMJsa+9ucAQZXxsObs=
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
 github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 h1:bAn7/zixMGCfxrRTfdpNzjtPYqr8smhKouy9mxVdGPU=

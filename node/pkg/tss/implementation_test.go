@@ -865,7 +865,8 @@ func TestNoFaultsFlow(t *testing.T) {
 		for _, engine := range engines {
 			tmp := make([]byte, 32)
 			copy(tmp, dgst[:])
-			engine.BeginAsyncThresholdSigningProtocol(tmp, cID, reportableConsistancyLevel)
+			err := engine.BeginAsyncThresholdSigningProtocol(tmp, cID, reportableConsistancyLevel)
+			a.NoError(err)
 		}
 
 		if ctxExpiredFirst(ctx, dnchn) {
@@ -1013,6 +1014,7 @@ func TestNoFaultsFlow(t *testing.T) {
 			Digest:        dgst,
 			Faulties:      []*common.PartyID{},
 			AuxiliaryData: chainIDToBytes(cID),
+			ProtocolType:  common.ProtocolFROSTSign,
 		})
 
 		for _, engine := range engines {
@@ -1219,6 +1221,7 @@ func TestFT(t *testing.T) {
 				Digest:        [32]byte{byte(i + 1)},
 				Faulties:      nil,
 				AuxiliaryData: chainIDToBytes(chainId),
+				ProtocolType:  common.ProtocolFROSTSign,
 			}
 		}
 
@@ -1283,6 +1286,7 @@ func TestFT(t *testing.T) {
 			Digest:        party.Digest{1, 2, 3, 4, 5, 6, 7, 8, 9},
 			Faulties:      []*common.PartyID{},
 			AuxiliaryData: chainIDToBytes(cID),
+			ProtocolType:  common.ProtocolFROSTSign,
 		}
 
 		engines, err := loadGuardians(5, "tss5")
@@ -1534,7 +1538,7 @@ func msgHandler(ctx context.Context, engines []*Engine, numDiffSigsExpected int)
 							panic("failed to translate signature:" + err.Error())
 						}
 
-						pk, err := engine.GetPublicKey()
+						pk, err := engine.GetPublicKey(common.ProtocolFROSTSign)
 						if err != nil {
 							panic("failed to get public key:" + err.Error())
 						}
@@ -1675,8 +1679,8 @@ func TestSigCounter(t *testing.T) {
 
 		cID := vaa.ChainID(0)
 		tsks := []party.SigningTask{
-			party.SigningTask{Digest: party.Digest{1}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID)},
-			party.SigningTask{Digest: party.Digest{2}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID)},
+			party.SigningTask{Digest: party.Digest{1}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID), ProtocolType: common.ProtocolFROSTSign},
+			party.SigningTask{Digest: party.Digest{2}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID), ProtocolType: common.ProtocolFROSTSign},
 		}
 		engines := load5GuardiansSetupForBroadcastChecks(a)
 		e1 := getSigningGuardian(a, engines, tsks...)
@@ -1715,7 +1719,7 @@ func TestSigCounter(t *testing.T) {
 		// Tests might fail due to change of the GuardianStorage files
 		cID := vaa.ChainID(0)
 		tsks := []party.SigningTask{
-			party.SigningTask{Digest: party.Digest{1}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID)},
+			party.SigningTask{Digest: party.Digest{1}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID), ProtocolType: common.ProtocolFROSTSign},
 		}
 		engines := load5GuardiansSetupForBroadcastChecks(a)
 		e1 := getSigningGuardian(a, engines, tsks...)
@@ -1762,7 +1766,7 @@ func TestSigCounter(t *testing.T) {
 		// Tests might fail due to change of the GuardianStorage files
 		cID := vaa.ChainID(0)
 		tsks := []party.SigningTask{
-			party.SigningTask{Digest: party.Digest{1}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID)},
+			party.SigningTask{Digest: party.Digest{1}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID), ProtocolType: common.ProtocolFROSTSign},
 		}
 		engines := load5GuardiansSetupForBroadcastChecks(a)
 		e1 := getSigningGuardian(a, engines, tsks...)
@@ -1811,8 +1815,8 @@ func TestSigCounter(t *testing.T) {
 
 		cID := vaa.ChainID(0)
 		tsks := []party.SigningTask{
-			party.SigningTask{Digest: party.Digest{1}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID)},
-			party.SigningTask{Digest: party.Digest{2}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID)},
+			party.SigningTask{Digest: party.Digest{1}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID), ProtocolType: common.ProtocolFROSTSign},
+			party.SigningTask{Digest: party.Digest{2}, Faulties: []*common.PartyID{}, AuxiliaryData: chainIDToBytes(cID), ProtocolType: common.ProtocolFROSTSign},
 		}
 		engines := load5GuardiansSetupForBroadcastChecks(a)
 		e1 := getSigningGuardian(a, engines, tsks...)
@@ -1920,49 +1924,52 @@ func TestTrackingIDSizeIsOkay(t *testing.T) {
 func TestDKG(t *testing.T) {
 	a := assert.New(t)
 
-	engines, err := loadGuardians(5, "tss5")
-	a.NoError(err)
-
-	for _, e := range engines { // Checks things work when no frost config is set.
-		e.GuardianStorage.frostconf = nil
-	}
-
-	supctx := testutils.MakeSupervisorContext(context.Background())
-	ctx, cancel := context.WithTimeout(supctx, time.Minute*1)
-	defer cancel()
-
-	for _, engine := range engines {
-		a.NoError(engine.Start(ctx))
-	}
-
-	_ = msgHandler(ctx, engines, 1)
-
-	promises := make([]chan *party.TSSSecrets, len(engines))
-	for _, engine := range engines {
-		chn, err := engine.StartDKG(party.DkgTask{
-			Threshold: 3,
-			Seed:      party.Digest{},
-		})
+	for _, prot := range []common.ProtocolType{common.ProtocolFROSTDKG} {
+		engines, err := loadGuardians(5, "tss5")
 		a.NoError(err)
 
-		promises[engine.Self.CommunicationIndex] = chn
-	}
-	fmt.Println("dkg started, waiting for configs...")
-
-	res := make([]*frost.Config, len(engines))
-	for _, v := range engines {
-		select {
-		case <-ctx.Done():
-			a.FailNow("context expired before DKG finished")
-		case cfg := <-promises[v.Self.CommunicationIndex]:
-			fmt.Println("received config for", v.Self.CommunicationIndex)
-			res[v.Self.CommunicationIndex] = cfg.Config
+		for _, e := range engines { // Checks things work when no frost config is set.
+			e.GuardianStorage.frostconf = nil
 		}
+
+		supctx := testutils.MakeSupervisorContext(context.Background())
+		ctx, cancel := context.WithTimeout(supctx, time.Minute*1)
+		defer cancel()
+
+		for _, engine := range engines {
+			a.NoError(engine.Start(ctx))
+		}
+
+		_ = msgHandler(ctx, engines, 1)
+
+		promises := make([]chan *party.TSSSecrets, len(engines))
+		for _, engine := range engines {
+			chn, err := engine.StartDKG(party.DkgTask{
+				Threshold:    3,
+				Seed:         party.Digest{},
+				ProtocolType: prot,
+			})
+			a.NoError(err)
+
+			promises[engine.Self.CommunicationIndex] = chn
+		}
+		fmt.Println("dkg started, waiting for configs...")
+
+		res := make([]*frost.Config, len(engines))
+		for _, v := range engines {
+			select {
+			case <-ctx.Done():
+				a.FailNow("context expired before DKG finished")
+			case cfg := <-promises[v.Self.CommunicationIndex]:
+				fmt.Println("received config for", v.Self.CommunicationIndex)
+				res[v.Self.CommunicationIndex] = cfg.FrostConfigs
+			}
+		}
+
+		fmt.Println("DKG finished, configs:")
+
+		fmt.Println("")
 	}
-
-	fmt.Println("DKG finished, configs:")
-
-	fmt.Println("")
 }
 
 func TestHandleFPWarning_IntegrationStyle_UsesEngineBootstrap(t *testing.T) {

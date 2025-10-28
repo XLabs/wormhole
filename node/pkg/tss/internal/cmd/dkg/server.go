@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path"
 	"strconv"
@@ -18,12 +18,19 @@ import (
 	engine "github.com/certusone/wormhole/node/pkg/tss"
 	"github.com/certusone/wormhole/node/pkg/tss/comm"
 	"github.com/certusone/wormhole/node/pkg/tss/internal/cmd"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/xlabs/multi-party-sig/protocols/frost/sign"
+	common "github.com/xlabs/tss-common"
 	"github.com/xlabs/tss-lib/v2/party"
 	"go.uber.org/zap"
 )
 
-var cnfgPath = flag.String("cnfg", "", "path to config file in json format used to run the protocol")
+var (
+	cnfgPath     = flag.String("cnfg", "", "path to config file in json format used to run the protocol")
+	existingPath = flag.String("secrets", "", "path to existing secrets.json. Used to ensure the result of DKG contains any existing keys for other protocols.")
+	protocolMsg  = fmt.Sprintf("the TSS protocol type to use ( '%s' | '%s')", common.ProtocolFROSTDKG, common.ProtocolECDSADKG)
+	protocol     = flag.String("protocol", "", protocolMsg)
+)
 
 var logger *zap.Logger
 
@@ -35,7 +42,7 @@ func main() {
 	logger = supervisor.Logger(ctx)
 
 	logger.Info("Loading KeyGenerator and GuardianStorage for DKG...")
-	cnfgs := loadConfigsFromFlags()
+	cnfgs, prot := loadConfigsFromFlags()
 
 	keygen, gst := keygeneratorSetup(cnfgs)
 
@@ -61,16 +68,31 @@ func main() {
 
 	logger.Info("Connections established, starting DKG...")
 
-	run(ctx, keygen, gst, cnfgs)
+	run(ctx, runParams{
+		keygen:       keygen,
+		gst:          gst,
+		cnfgs:        cnfgs,
+		prot:         prot,
+		existingPath: *existingPath,
+	})
 }
 
-func run(ctx context.Context, keygen engine.KeyGenerator, gst *engine.GuardianStorage, cnfgs *cmd.SetupConfigs) {
+type runParams struct {
+	keygen       engine.KeyGenerator
+	gst          *engine.GuardianStorage
+	cnfgs        *cmd.SetupConfigs
+	prot         common.ProtocolType
+	existingPath string
+}
+
+func run(ctx context.Context, prms runParams) {
 	for i := range 10 { // The loop should converge after 2~3 iterations.
 		logger.Info("Starting new DKG session", zap.Int("session", i))
 
-		resChn, err := keygen.StartDKG(party.DkgTask{
-			Threshold: gst.Threshold,
-			Seed:      sha256.Sum256([]byte("dkg seed:" + strconv.Itoa(i))),
+		resChn, err := prms.keygen.StartDKG(party.DkgTask{
+			Threshold:    prms.gst.Threshold,
+			Seed:         sha256.Sum256([]byte("dkg seed:" + strconv.Itoa(i))),
+			ProtocolType: prms.prot,
 		})
 
 		if err != nil {
@@ -90,51 +112,42 @@ func run(ctx context.Context, keygen engine.KeyGenerator, gst *engine.GuardianSt
 			continue
 		}
 
-		crv := tssConfigs.PublicKey.Curve()
-
 		lg := logger.With(zap.String("TrackingID", tssConfigs.TrackingID.ToString()))
 
 		lg.Info("completed a DKG session")
 
-		pkMarshal, err := crv.MarshalPoint(tssConfigs.PublicKey.Clone())
-		if err != nil {
-			lg.Fatal("failed to marshal public key", zap.Error(err))
-		}
-
-		lg.Info("verifying resulting PK is valid for TSS usage",
-			zap.String("pk", hex.EncodeToString(pkMarshal)),
-		)
-
-		lg.Info("verifying randomly chosen PK is valid for smart-contract usage")
-		if !sign.PublicKeyValidForContract(tssConfigs.PublicKey) {
+		if prms.prot == common.ProtocolFROSTDKG && !validOutputForFrostUsage(tssConfigs, lg) {
+			lg.Warn("resulting TSSSecrets is not valid for Frost usage, retrying DKG...")
 			continue
 		}
 
-		buff := bytes.NewBuffer(nil)
-		enc := gob.NewEncoder(buff)
+		attemptMergingTssSecretsToOld(lg, prms, tssConfigs)
 
-		if err := enc.Encode(tssConfigs); err != nil {
+		// Marshal the resulting TSSSecrets into the GuardianStorage.
+
+		bts, err := cbor.Marshal(tssConfigs)
+		if err != nil {
 			lg.Fatal("failed to marshal frost configuration", zap.Error(err))
 		}
 
-		gst.TSSSecrets = buff.Bytes()
-		if err := gst.SetInnerFields(); err != nil {
+		prms.gst.TSSSecrets = bts
+		if err := prms.gst.SetInnerFields(); err != nil {
 			lg.Fatal("failed to set inner fields of the GuardianStorage", zap.Error(err))
 		}
 
 		lg.Info("GuardianStorage updated with TSS secrets. Storing result into file", zap.Int("guardianIndex", i))
 
-		toStore, err := json.MarshalIndent(gst, "", "  ")
+		toStore, err := json.MarshalIndent(prms.gst, "", "  ")
 		if err != nil {
 			lg.Fatal("failed to marshal GuardianStorage", zap.Error(err))
 		}
 
 		// create path of dirs using cnfgs.StorageLocation:
-		if err := os.MkdirAll(cnfgs.StorageLocation, 0700); err != nil {
+		if err := os.MkdirAll(prms.cnfgs.StorageLocation, 0700); err != nil {
 			lg.Fatal("failed to create storage directory", zap.Error(err))
 		}
 
-		fname := path.Join(cnfgs.StorageLocation, "secrets.json")
+		fname := path.Join(prms.cnfgs.StorageLocation, "secrets.json")
 
 		lg.Info("Writing GuardianStorage to file", zap.String("file", fname))
 		if err := os.WriteFile(fname, toStore, 0600); err != nil {
@@ -147,6 +160,51 @@ func run(ctx context.Context, keygen engine.KeyGenerator, gst *engine.GuardianSt
 	}
 
 	logger.Fatal("failed to complete DKG after 10 attempts, please check the logs for more details")
+}
+
+// attemptMergingTssSecretsToOld tries to load existing TSSSecrets from an old GuardianStorage file
+// and merge them into the new TSSSecrets generated by the DKG process.
+// This is useful to preserve existing keys for other protocols when only one protocol's keys are being generated.
+func attemptMergingTssSecretsToOld(lg *zap.Logger, prms runParams, tssConfigs *party.TSSSecrets) {
+	if prms.existingPath == "" {
+		return
+	}
+	lg.Info("loading existing GuardianStorage from file", zap.String("file", *existingPath))
+	tmp, err := engine.NewGuardianStorageFromFile(*existingPath)
+	if err != nil {
+		lg.Error("Failed to load existing GuardianStorage from file. Continuing to save the result into a new GuardianStorage", zap.Error(err))
+		return
+	}
+
+	secrets, err := engine.UnmarshalTssSecrets(tmp.TSSSecrets)
+	if err != nil {
+		lg.Error("Failed to unmarshal existing TSSSecrets from GuardianStorage. Continuing to save the result into a new GuardianStorage", zap.Error(err))
+		return
+	}
+
+	// Merge the existing secrets into the new TSSSecrets. Thus we preserve any existing keys for other protocols.
+	lg.Info("merging existing TSSSecrets into the new TSSSecrets")
+	if prms.prot == common.ProtocolFROSTDKG {
+		tssConfigs.EcdsaConfigs = secrets.EcdsaConfigs
+	} else if prms.prot == common.ProtocolECDSADKG {
+		tssConfigs.FrostConfigs = secrets.FrostConfigs
+	}
+}
+
+func validOutputForFrostUsage(tssConfigs *party.TSSSecrets, lg *zap.Logger) bool {
+	crv := tssConfigs.FrostConfigs.PublicKey.Curve()
+	pk := tssConfigs.FrostConfigs.PublicKey.Clone()
+	pkMarshal, err := crv.MarshalPoint(pk)
+	if err != nil {
+		lg.Fatal("failed to marshal public key", zap.Error(err))
+	}
+
+	lg.Info("verifying resulting PK is valid for Frost  usage",
+		zap.String("pk", hex.EncodeToString(pkMarshal)),
+	)
+
+	lg.Info("verifying randomly chosen PK is valid for smart-contract usage")
+	return sign.PublicKeyValidForContract(pk)
 }
 
 func createServer(keygen engine.KeyGenerator) comm.DirectLink {
@@ -206,10 +264,10 @@ func keygeneratorSetup(cnfgs *cmd.SetupConfigs) (engine.KeyGenerator, *engine.Gu
 	return keygen, gst
 }
 
-func loadConfigsFromFlags() *cmd.SetupConfigs {
+func loadConfigsFromFlags() (*cmd.SetupConfigs, common.ProtocolType) {
 	flag.Parse()
 
-	if *cnfgPath == "" {
+	if *cnfgPath == "" || *protocol == "" {
 		flag.PrintDefaults()
 
 		logger.Fatal("config path is empty, please provide a valid path to a config file")
@@ -228,5 +286,13 @@ func loadConfigsFromFlags() *cmd.SetupConfigs {
 		logger.Fatal("failed to unmarshal config file", zap.Error(err))
 	}
 
-	return cnfg
+	if *protocol != common.ProtocolECDSADKG.ToString() && *protocol != common.ProtocolFROSTDKG.ToString() {
+		logger.Fatal(fmt.Sprintf("protocol must be either '%s' or '%s'", common.ProtocolFROSTDKG.ToString(), common.ProtocolECDSADKG.ToString()))
+	}
+	protocolType := common.ProtocolFROSTDKG
+	if *protocol == "cmp" {
+		protocolType = common.ProtocolECDSADKG
+	}
+
+	return cnfg, protocolType
 }

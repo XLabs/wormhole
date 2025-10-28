@@ -315,6 +315,7 @@ func (t *Engine) prepareThenAnounceNewDigest(d party.Digest, chainID vaa.ChainID
 		Digest:        d,
 		Faulties:      []*common.PartyID{}, // no faulties
 		AuxiliaryData: chainIDToBytes(chainID),
+		ProtocolType:  common.ProtocolFROSTSign, // TODO: make this dynamic based on chainID + ensure the task is the same in both cases.
 	})
 
 	if err != nil {
@@ -341,6 +342,7 @@ func makeSigningRequest(d party.Digest, faulties []*common.PartyID, chainID vaa.
 		// indicating the reviving guardian will be given a chance to join the protocol.
 		Faulties:      faulties,
 		AuxiliaryData: chainIDToBytes(chainID),
+		ProtocolType:  common.ProtocolFROSTSign, // TODO: make this dynamic based on chainID
 	}
 }
 func NewKeyGenerator(storage *GuardianStorage) (KeyGenerator, error) {
@@ -472,8 +474,8 @@ func (t *Engine) Start(ctx context.Context) error {
 	return nil
 }
 
-func (t *Engine) GetPublicKey() (curve.Point, error) {
-	pk, err := t.fp.GetPublic()
+func (t *Engine) GetPublicKey(prot common.ProtocolType) (curve.Point, error) {
+	pk, err := t.fp.GetPublic(prot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get public key from full party: %w", err)
 	}
@@ -481,8 +483,8 @@ func (t *Engine) GetPublicKey() (curve.Point, error) {
 	return pk, nil
 }
 
-func (t *Engine) GetEthAddress() (ethcommon.Address, error) {
-	pubkey, err := t.fp.GetPublic()
+func (t *Engine) GetEthAddress(prot common.ProtocolType) (ethcommon.Address, error) {
+	pubkey, err := t.fp.GetPublic(prot)
 	if err != nil {
 		return ethcommon.Address{}, fmt.Errorf("failed to get public key from full party: %w", err)
 	}

@@ -5,9 +5,7 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
-	"encoding/gob"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,6 +14,7 @@ import (
 
 	engine "github.com/certusone/wormhole/node/pkg/tss"
 	"github.com/certusone/wormhole/node/pkg/tss/internal/cmd"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/xlabs/multi-party-sig/pkg/math/curve"
 	"github.com/xlabs/multi-party-sig/pkg/math/polynomial"
 	"github.com/xlabs/multi-party-sig/pkg/math/sample"
@@ -125,10 +124,8 @@ func simulateDKG(all []*dkgPlayer, threshold int) {
 			VerificationShares: party.NewPointMap(verificationShares),
 		}
 
-		buff := bytes.NewBuffer(nil)
-		enc := gob.NewEncoder(buff)
-
-		if err := enc.Encode(cnf); err != nil {
+		bts, err := cbor.Marshal(cnf)
+		if err != nil {
 			panic(fmt.Sprintf("failed to marshal frost config for guardian %d: %v", i, err))
 		}
 
@@ -141,7 +138,7 @@ func simulateDKG(all []*dkgPlayer, threshold int) {
 			Threshold:      threshold,
 			// SavedSecretParameters: ,
 			LoadDistributionKey: p.loadDistributionKey,
-			TSSSecrets:          buff.Bytes(),
+			TSSSecrets:          bts,
 		}
 	}
 

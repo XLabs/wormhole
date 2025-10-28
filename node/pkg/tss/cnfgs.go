@@ -5,26 +5,19 @@ import (
 	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/certusone/wormhole/node/pkg/tss/internal"
 	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/xlabs/multi-party-sig/pkg/math/curve"
+	"github.com/xlabs/multi-party-sig/protocols/cmp"
 	"github.com/xlabs/multi-party-sig/protocols/frost"
 	common "github.com/xlabs/tss-common"
 	"github.com/xlabs/tss-lib/v2/party"
 )
-
-func init() {
-	// gob registrations for possible curve.Scalar/curve.Point implementations.
-	// gob has trouble unmarshalling interface types without a one to one mapping to a concrete type.
-	gob.Register(&curve.Secp256k1Scalar{})
-	gob.Register(&curve.Secp256k1Point{})
-	gob.Register(&party.TSSSecrets{})
-}
 
 func (s *GuardianStorage) unmarshalFromJSON(storageData []byte) error {
 	if err := json.Unmarshal(storageData, &s); err != nil {
@@ -51,24 +44,40 @@ func (s *GuardianStorage) attemptLoadTssSecrets() error {
 		return nil
 	}
 
-	buff := bytes.NewBuffer(s.TSSSecrets)
-	dec := gob.NewDecoder(buff)
-
-	cnf := &party.TSSSecrets{
-		Config: frost.EmptyConfig(curve.Secp256k1{}),
+	cnf, err := UnmarshalTssSecrets(s.TSSSecrets)
+	if err != nil {
+		return err
 	}
 
-	if err := dec.Decode(cnf); err != nil {
-		return fmt.Errorf("error unmarshalling TSSSecrets: %v", err)
+	if cnf.FrostConfigs != nil {
+		if !cnf.FrostConfigs.ValidateBasic() {
+			return fmt.Errorf("invalid frost configs in stored TSSSecrets")
+		}
+
+		if len(cnf.FrostConfigs.VerificationShares.Points) != len(s.IdentitiesKeep.Identities) {
+			return fmt.Errorf("number of verification shares does not match number of guardians")
+		}
 	}
 
-	if len(cnf.VerificationShares.Points) != len(s.IdentitiesKeep.Identities) {
-		return fmt.Errorf("number of verification shares does not match number of guardians")
-	}
+	s.frostconf = cnf.FrostConfigs
 
-	s.frostconf = cnf.Config
+	// TODO: cmp configs could be added here:
 
 	return nil
+}
+
+func UnmarshalTssSecrets(TSSsecrets []byte) (*party.TSSSecrets, error) {
+	cnf := &party.TSSSecrets{
+		FrostConfigs: frost.EmptyConfig(curve.Secp256k1{}),
+		EcdsaConfigs: cmp.EmptyConfig(curve.Secp256k1{}),
+		TrackingID:   &common.TrackingID{},
+	}
+
+	if err := cbor.Unmarshal(TSSsecrets, cnf); err != nil {
+		return nil, fmt.Errorf("error unmarshalling TSSSecrets: %v", err)
+	}
+
+	return cnf, nil
 }
 
 func (s *GuardianStorage) load(storagePath string) error {

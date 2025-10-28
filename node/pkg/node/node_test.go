@@ -51,6 +51,7 @@ import (
 
 	nodev1 "github.com/certusone/wormhole/node/pkg/proto/node/v1"
 	eth_common "github.com/ethereum/go-ethereum/common"
+	tsscommon "github.com/xlabs/tss-common"
 )
 
 const LOCAL_RPC_PORTRANGE_START = 10000
@@ -942,7 +943,7 @@ func pollApiAndInspectVaa(t *testing.T, ctx context.Context, msg *common.Message
 		if !testCase.prePopulateVAA { // if the VAA is pre-populated with a dummy, then this is expected to fail
 			var verificationPublic vaa.PublicKeys = gsAddrList
 			if testCase.tssVaaVersionChecks {
-				verificationPublic, err = gs[0].tssEngine.GetPublicKey()
+				verificationPublic, err = gs[0].tssEngine.GetPublicKey(tsscommon.ProtocolFROSTSign)
 				assert.NoError(t, err)
 			}
 

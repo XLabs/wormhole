@@ -7,6 +7,8 @@ import (
 	"time"
 
 	node_common "github.com/certusone/wormhole/node/pkg/common"
+	tsscommon "github.com/xlabs/tss-common"
+
 	"github.com/certusone/wormhole/node/pkg/db"
 	"github.com/mr-tron/base58"
 	"github.com/prometheus/client_golang/prometheus"
@@ -340,7 +342,7 @@ func (p *Processor) handleInboundSignedVAAWithQuorum(m *gossipv1.SignedVAAWithQu
 
 	var verificationPublic vaa.PublicKeys = keys
 	if v.Version == vaa.TSSVaaVersion {
-		verificationPublic, err = p.thresholdSigner.GetPublicKey()
+		verificationPublic, err = p.thresholdSigner.GetPublicKey(tsscommon.ProtocolFROSTSign)
 		if err != nil {
 			p.logger.Warn("dropping SignedVAAWithQuorum message since we failed to get public key for TSS VAA",
 				zap.String("message_id", v.MessageID()),
