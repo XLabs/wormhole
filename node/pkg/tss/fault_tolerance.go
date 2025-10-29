@@ -9,6 +9,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// TODO: Consider removing this mechanism. Not used anymore, and adds considerable complexity.
+
 // This file represents tracking mechanism for signatures, their trackingID, and who is currently working on them.
 // It provide the Engine with information, for instance whether if the guardian saw the digest already.
 //

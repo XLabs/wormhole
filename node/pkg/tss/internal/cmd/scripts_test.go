@@ -102,18 +102,18 @@ func TestMain(t *testing.T) {
 		saveFolder:                path.Join(getCurrentFilePath(t), "dkg"), // workingdir
 		loadExisting:              true,
 		forLocalDKG:               true,
-		storeIntoInternalTestData: false,
+		storeIntoInternalTestData: true, // ensure we update the internal testdata after running DKG
 	}
 	t.Run("RunDKG", tt.RunDKG)
 
-	tt = dkgTest{
-		hostnames: hostnames,
-		// for ease of debug, not using full path.
-		saveFolder:                path.Join(getCurrentFilePath(t), "lkg"), // workingdir
-		forLocalDKG:               false,
-		storeIntoInternalTestData: false,
-	}
-	t.Run("CreateLKGConfigs", tt.createLKGConfigs)
+	// tt = dkgTest{
+	// 	hostnames: hostnames,
+	// 	// for ease of debug, not using full path.
+	// 	saveFolder:                path.Join(getCurrentFilePath(t), "lkg"), // workingdir
+	// 	forLocalDKG:               false,
+	// 	storeIntoInternalTestData: false,
+	// }
+	// t.Run("CreateLKGConfigs", tt.createLKGConfigs)
 
 	// t.Run("scpSecretsToServers", sendToServers)
 }

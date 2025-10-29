@@ -19,6 +19,7 @@ import (
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 	frosteth "github.com/xlabs/multi-party-sig/pkg/eth"
 	"github.com/xlabs/multi-party-sig/pkg/math/curve"
+	"github.com/xlabs/multi-party-sig/protocols/cmp"
 	"github.com/xlabs/multi-party-sig/protocols/frost"
 	common "github.com/xlabs/tss-common"
 	"github.com/xlabs/tss-lib/v2/party"
@@ -76,6 +77,9 @@ type Configurations struct {
 	// LeaderIdentity is used by the TSS engine protocol to determine who is responsible for telling
 	// the other guardians about a new VAAv1.
 	LeaderIdentity PEM // The public key of the leader in PEM format.
+
+	// The list of chains that use ECDSA signatures.
+	EcdsaChains []vaa.ChainID
 }
 
 // GuardianStorage is a struct that holds the data needed for a guardian to participate in the TSS protocol
@@ -99,6 +103,7 @@ type GuardianStorage struct {
 	// all secret keys should be generated with specific value.
 	TSSSecrets []byte
 	frostconf  *frost.Config
+	ecdsaconf  *cmp.Config
 
 	LoadDistributionKey []byte
 
@@ -167,7 +172,15 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 	d := party.Digest{}
 	copy(d[:], vaaDigest)
 
-	if err := t.prepareThenAnounceNewDigest(d, chainID, consistencyLvl, mt); err != nil {
+	sigtask := party.SigningTask{
+		Digest: d,
+		// indicating the reviving guardian will be given a chance to join the protocol.
+		Faulties:      t.getExcludedFromCommittee(mt),
+		AuxiliaryData: chainIDToBytes(chainID),
+		ProtocolType:  t.getProtocolForChain(chainID),
+	}
+
+	if err := t.prepareThenAnounceNewDigest(sigtask, consistencyLvl, mt); err != nil {
 		return err
 	}
 
@@ -186,9 +199,7 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 
 	t.createSignatureMetrics(vaaDigest, chainID)
 
-	sigTask := makeSigningRequest(d, t.getExcludedFromCommittee(mt), chainID)
-
-	info, err := t.fp.GetSigningInfo(sigTask)
+	info, err := t.fp.GetSigningInfo(sigtask)
 	if err != nil {
 		return fmt.Errorf("couldnt generate signing task: %w", err)
 	}
@@ -198,7 +209,7 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 	}
 
 	// TODO: cosider not recomputing the info, and just used it from `t.fp.GetSigningInfo(sigTask)`
-	info, err = t.fp.AsyncRequestNewSignature(sigTask)
+	info, err = t.fp.AsyncRequestNewSignature(sigtask)
 
 	if err != nil {
 		return err
@@ -310,14 +321,8 @@ func (t *Engine) getSigPrepInfo(chainID vaa.ChainID, d party.Digest) (sigPrepara
 }
 
 // prepareThenAnounceNewDigest updates the inner state of the engine before announcing to others about a new digest seen.
-func (t *Engine) prepareThenAnounceNewDigest(d party.Digest, chainID vaa.ChainID, consistencyLvl uint8, mt signingMeta) error {
-	signinginfo, err := t.fp.GetSigningInfo(party.SigningTask{
-		Digest:        d,
-		Faulties:      []*common.PartyID{}, // no faulties
-		AuxiliaryData: chainIDToBytes(chainID),
-		ProtocolType:  common.ProtocolFROSTSign, // TODO: make this dynamic based on chainID + ensure the task is the same in both cases.
-	})
-
+func (t *Engine) prepareThenAnounceNewDigest(sigtask party.SigningTask, consistencyLvl uint8, mt signingMeta) error {
+	signinginfo, err := t.fp.GetSigningInfo(sigtask)
 	if err != nil {
 		return fmt.Errorf("couldnt generate signing task: %w", err)
 	}
@@ -336,15 +341,16 @@ func (t *Engine) prepareThenAnounceNewDigest(d party.Digest, chainID vaa.ChainID
 	return nil
 }
 
-func makeSigningRequest(d party.Digest, faulties []*common.PartyID, chainID vaa.ChainID) party.SigningTask {
-	return party.SigningTask{
-		Digest: d,
-		// indicating the reviving guardian will be given a chance to join the protocol.
-		Faulties:      faulties,
-		AuxiliaryData: chainIDToBytes(chainID),
-		ProtocolType:  common.ProtocolFROSTSign, // TODO: make this dynamic based on chainID
+func (t *Engine) getProtocolForChain(chainID vaa.ChainID) common.ProtocolType {
+	for _, ecdsaChain := range t.GuardianStorage.EcdsaChains {
+		if ecdsaChain == chainID {
+			return common.ProtocolECDSASign
+		}
 	}
+
+	return common.ProtocolFROSTSign
 }
+
 func NewKeyGenerator(storage *GuardianStorage) (KeyGenerator, error) {
 	relTSS, err := NewReliableTSS(storage)
 	if err != nil {
@@ -382,6 +388,7 @@ func NewReliableTSS(storage *GuardianStorage) (ReliableTSS, error) {
 
 	fpParams := &party.Parameters{
 		FrostSecrets: storage.frostconf,
+		EcdsaSecrets: storage.ecdsaconf,
 		PartyIDs:     storage.GetPartyIDs(),
 		Self:         storage.Self.Pid,
 
@@ -912,8 +919,8 @@ func (t *Engine) handleUnicastTSS(v *tsscommv1.Unicast_Tss, src *Identity) error
 		return err
 	}
 
-	if isBroadcastMsg(fpmsg) {
-		return fmt.Errorf("received broadcast type message in unicast: %v", fpmsg)
+	if !isKnownUnicastType(fpmsg) {
+		return fmt.Errorf("unknown unicast message type received: %T", fpmsg.Content())
 	}
 
 	err = t.validateUnicastDoesntExist(fpmsg)

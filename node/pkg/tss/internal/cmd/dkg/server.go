@@ -118,13 +118,13 @@ func run(ctx context.Context, prms runParams) {
 
 		if prms.prot == common.ProtocolFROSTDKG && !validOutputForFrostUsage(tssConfigs, lg) {
 			lg.Warn("resulting TSSSecrets is not valid for Frost usage, retrying DKG...")
+
 			continue
 		}
 
 		attemptMergingTssSecretsToOld(lg, prms, tssConfigs)
 
 		// Marshal the resulting TSSSecrets into the GuardianStorage.
-
 		bts, err := cbor.Marshal(tssConfigs)
 		if err != nil {
 			lg.Fatal("failed to marshal frost configuration", zap.Error(err))
@@ -176,19 +176,20 @@ func attemptMergingTssSecretsToOld(lg *zap.Logger, prms runParams, tssConfigs *p
 		return
 	}
 
-	secrets, err := engine.UnmarshalTssSecrets(tmp.TSSSecrets)
+	loaded, err := engine.UnmarshalTssSecrets(tmp.TSSSecrets)
 	if err != nil {
 		lg.Error("Failed to unmarshal existing TSSSecrets from GuardianStorage. Continuing to save the result into a new GuardianStorage", zap.Error(err))
 		return
 	}
 
 	// Merge the existing secrets into the new TSSSecrets. Thus we preserve any existing keys for other protocols.
-	lg.Info("merging existing TSSSecrets into the new TSSSecrets")
 	if prms.prot == common.ProtocolFROSTDKG {
-		tssConfigs.EcdsaConfigs = secrets.EcdsaConfigs
+		tssConfigs.EcdsaConfigs = loaded.EcdsaConfigs
 	} else if prms.prot == common.ProtocolECDSADKG {
-		tssConfigs.FrostConfigs = secrets.FrostConfigs
+		tssConfigs.FrostConfigs = loaded.FrostConfigs
 	}
+
+	lg.Info("merged existing TSSSecrets into the new TSSSecrets")
 }
 
 func validOutputForFrostUsage(tssConfigs *party.TSSSecrets, lg *zap.Logger) bool {
@@ -199,11 +200,7 @@ func validOutputForFrostUsage(tssConfigs *party.TSSSecrets, lg *zap.Logger) bool
 		lg.Fatal("failed to marshal public key", zap.Error(err))
 	}
 
-	lg.Info("verifying resulting PK is valid for Frost  usage",
-		zap.String("pk", hex.EncodeToString(pkMarshal)),
-	)
-
-	lg.Info("verifying randomly chosen PK is valid for smart-contract usage")
+	lg.Info("verifying randomly chosen PK is valid for smart-contract usage", zap.String("pk", hex.EncodeToString(pkMarshal)))
 	return sign.PublicKeyValidForContract(pk)
 }
 
@@ -289,10 +286,6 @@ func loadConfigsFromFlags() (*cmd.SetupConfigs, common.ProtocolType) {
 	if *protocol != common.ProtocolECDSADKG.ToString() && *protocol != common.ProtocolFROSTDKG.ToString() {
 		logger.Fatal(fmt.Sprintf("protocol must be either '%s' or '%s'", common.ProtocolFROSTDKG.ToString(), common.ProtocolECDSADKG.ToString()))
 	}
-	protocolType := common.ProtocolFROSTDKG
-	if *protocol == "cmp" {
-		protocolType = common.ProtocolECDSADKG
-	}
 
-	return cnfg, protocolType
+	return cnfg, common.ProtocolType(*protocol)
 }

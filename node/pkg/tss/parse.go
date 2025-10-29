@@ -36,8 +36,8 @@ func (t *Engine) parseBroadcast(m Incoming) (broadcastMessage, error) {
 			return nil, err
 		}
 
-		if !isBroadcastMsg(p) {
-			return nil, fmt.Errorf("non-broadcast message received in broadcast router: %T. sender: %s", p, m.GetSource().Hostname)
+		if !isKnownBroadcastType(p) {
+			return nil, fmt.Errorf("unknown broadcast message received: %T. sender: %s", p.Content(), m.GetSource().NetworkName())
 		}
 
 		parsed := &parsedTssContent{p, ""}

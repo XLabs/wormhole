@@ -10,8 +10,10 @@ import (
 
 	tsscommv1 "github.com/certusone/wormhole/node/pkg/proto/tsscomm/v1"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
-	"github.com/xlabs/multi-party-sig/protocols/frost/keygen"
-	"github.com/xlabs/multi-party-sig/protocols/frost/sign"
+	cmpdkg "github.com/xlabs/multi-party-sig/protocols/cmp/keygen"
+	cmpsign "github.com/xlabs/multi-party-sig/protocols/cmp/sign"
+	frostdkg "github.com/xlabs/multi-party-sig/protocols/frost/keygen"
+	frostsign "github.com/xlabs/multi-party-sig/protocols/frost/sign"
 	common "github.com/xlabs/tss-common"
 	"github.com/xlabs/tss-lib/v2/party"
 	"go.uber.org/zap"
@@ -253,12 +255,16 @@ const (
 	round1Message signingRound = "round1"
 	round2Message signingRound = "round2"
 	round3Message signingRound = "round3"
+	round4Message signingRound = "round4"
+	round5Message signingRound = "round5"
 )
 
 var _intToRoundArr = []signingRound{
 	round1Message,
 	round2Message,
 	round3Message,
+	round4Message,
+	round5Message,
 }
 
 func intToRound(i int) signingRound {
@@ -286,15 +292,28 @@ func getRound(m common.ParsedMessage) (signingRound, error) {
 	return _intToRoundArr[m.Content().RoundNumber()-1], nil
 }
 
-func isBroadcastMsg(m common.ParsedMessage) bool {
+// ensures content of a known broadcast type.
+func isKnownBroadcastType(m common.ParsedMessage) bool {
 	switch m.Content().(type) {
-	case *sign.Broadcast2:
+	case *frostsign.Broadcast2, *frostsign.Broadcast3:
 		return true
-	case *sign.Broadcast3:
+	case *frostdkg.Broadcast2, *frostdkg.Broadcast3:
 		return true
-	case *keygen.Broadcast2:
+
+	case *cmpsign.Broadcast2, *cmpsign.Broadcast3, *cmpsign.Broadcast4, *cmpsign.Broadcast5:
 		return true
-	case *keygen.Broadcast3:
+	case *cmpdkg.Broadcast2, *cmpdkg.Broadcast3, *cmpdkg.Broadcast4, *cmpdkg.Broadcast5:
+		return true
+	default:
+		return false
+	}
+}
+
+func isKnownUnicastType(m common.ParsedMessage) bool {
+	switch m.Content().(type) {
+	case *cmpsign.Message2, *cmpsign.Message3, *cmpsign.Message4:
+		return true
+	case *frostdkg.Message3, *cmpdkg.Message4:
 		return true
 	default:
 		return false
