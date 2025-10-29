@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 	"github.com/xlabs/multi-party-sig/pkg/round"
+	"github.com/xlabs/multi-party-sig/protocols/cmp"
 	"github.com/xlabs/multi-party-sig/protocols/frost"
 	"github.com/xlabs/multi-party-sig/protocols/frost/sign"
 	common "github.com/xlabs/tss-common"
@@ -1142,6 +1143,59 @@ func TestNoFaultsFlow(t *testing.T) {
 			a.True(committeeHostnames[id.Hostname], "message from non-committee member: %s", id.Hostname)
 		}
 	})
+
+	t.Run("ECDSA signature", func(t *testing.T) {
+		// SLOW TEST.
+		sigProducedCntr.Reset()
+		a := assert.New(t)
+		engines, err := loadGuardians(5, "tss5")
+		a.NoError(err)
+
+		dgst := party.Digest{1, 2, 3, 4, 5, 6, 7, 8, 9}
+
+		ctx, cancel := context.WithTimeout(testutils.MakeSupervisorContext(context.Background()), time.Second*50)
+		defer cancel()
+
+		cID := vaa.ChainID(1)
+		for i, e := range engines {
+			e.GuardianStorage.EcdsaChains = []vaa.ChainID{cID}
+			a.NoError(e.attemptLoadTssSecrets()) // ensure ecdsa is loaded.
+			a.NotNil(e.GuardianStorage.ecdsaconf)
+
+			// recreate engine to ensure ecdsa config is used.
+			engines[i], err = newEngine(&e.GuardianStorage)
+			a.NoError(err)
+		}
+
+		fmt.Println("starting engines.")
+		for _, engine := range engines {
+			a.NoError(engine.Start(ctx))
+		}
+
+		fmt.Println("msgHandler settup:")
+		dnchn := msgHandler(ctx, engines, 1)
+
+		fmt.Println("engines started, requesting sigs")
+
+		m := dto.Metric{}
+
+		// all engines are started, now we can begin the protocol.
+		for _, engine := range engines {
+			tmp := make([]byte, 32)
+			copy(tmp, dgst[:])
+			err := engine.BeginAsyncThresholdSigningProtocol(tmp, cID, reportableConsistancyLevel)
+			a.NoError(err)
+		}
+
+		if ctxExpiredFirst(ctx, dnchn) {
+			a.FailNow("context expired")
+		}
+
+		time.Sleep(time.Millisecond * 500) // ensuring all other engines have finished and not just one of them.
+
+		sigProducedCntr.WithLabelValues(cID.String()).Write(&m)
+		a.Equal(engines[0].Threshold+1, int(m.Counter.GetValue()))
+	})
 }
 
 // Creates a vaa with 2t+1 sigantures (not n-out-of-n signatures).
@@ -1350,7 +1404,7 @@ func TestMessagesWithBadRounds(t *testing.T) {
 			}
 
 			err = e2.handleUnicast(m)
-			a.ErrorContains(err, "received broadcast type message in unicast")
+			a.ErrorContains(err, "unknown unicast message type received")
 		}
 	})
 
@@ -1533,19 +1587,7 @@ func msgHandler(ctx context.Context, engines []*Engine, numDiffSigsExpected int)
 						}
 						unicast(m, chns, engine)
 					case sig := <-engine.ProducedSignature():
-						sg, err := frost.Secp256k1SignatureTranslate(sig)
-						if err != nil {
-							panic("failed to translate signature:" + err.Error())
-						}
-
-						pk, err := engine.GetPublicKey(common.ProtocolFROSTSign)
-						if err != nil {
-							panic("failed to get public key:" + err.Error())
-						}
-
-						if err := sg.Verify(pk, sig.M); err != nil {
-							panic("failed to verify signature:" + err.Error())
-						}
+						mustVerify(sig, engine)
 
 						lck.Lock()
 						nmsigs[sig.TrackingId.ToString()] = struct{}{}
@@ -1575,6 +1617,46 @@ func msgHandler(ctx context.Context, engines []*Engine, numDiffSigsExpected int)
 	}()
 
 	return signalDone
+}
+
+func mustVerify(sig *common.SignatureData, engine *Engine) {
+	if sig.TrackingId.Protocol == uint32(common.ProtocolFROSTSign.ToInt()) {
+		mustVerifyFrost(sig, engine)
+	} else {
+		mustVerifyCMP(sig, engine)
+	}
+}
+
+func mustVerifyCMP(sig *common.SignatureData, engine *Engine) {
+	sg, err := cmp.Secp256k1SignatureTranslate(sig)
+	if err != nil {
+		panic("failed to translate cmp signature:" + err.Error())
+	}
+
+	pk, err := engine.GetPublicKey(common.ProtocolECDSASign)
+	if err != nil {
+		panic("failed to get cmp  publickey:" + err.Error())
+	}
+
+	if !sg.Verify(pk, sig.M) {
+		panic("failed to verify cmp signature:" + err.Error())
+	}
+}
+
+func mustVerifyFrost(sig *common.SignatureData, engine *Engine) {
+	sg, err := frost.Secp256k1SignatureTranslate(sig)
+	if err != nil {
+		panic("failed to translate frost signature:" + err.Error())
+	}
+
+	pk, err := engine.GetPublicKey(common.ProtocolFROSTSign)
+	if err != nil {
+		panic("failed to get frost public key:" + err.Error())
+	}
+
+	if err := sg.Verify(pk, sig.M); err != nil {
+		panic("failed to verify frost signature:" + err.Error())
+	}
 }
 
 func unicast(m Sendable, chns map[string]chan msgg, engine *Engine) {

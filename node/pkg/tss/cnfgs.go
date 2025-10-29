@@ -49,19 +49,51 @@ func (s *GuardianStorage) attemptLoadTssSecrets() error {
 		return err
 	}
 
-	if cnf.FrostConfigs != nil {
-		if !cnf.FrostConfigs.ValidateBasic() {
-			return fmt.Errorf("invalid frost configs in stored TSSSecrets")
-		}
+	if err := s.storeFrostConf(cnf); err != nil {
+		return err
+	}
 
-		if len(cnf.FrostConfigs.VerificationShares.Points) != len(s.IdentitiesKeep.Identities) {
-			return fmt.Errorf("number of verification shares does not match number of guardians")
-		}
+	if err := s.storeCmpConf(cnf); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (st *GuardianStorage) storeCmpConf(cnf *party.TSSSecrets) error {
+	if cnf == nil {
+		return fmt.Errorf("TSSSecrets is nil")
+	}
+
+	if len(st.Configurations.EcdsaChains) == 0 {
+		return nil // we do not need to load cmp config since there are no chains that use ecdsa.
+	}
+
+	// also validates conf != nil.
+	if !cnf.EcdsaConfigs.ValidateBasic() {
+		return fmt.Errorf("invalid ecdsa configs in stored TSSSecrets")
+	}
+
+	st.ecdsaconf = cnf.EcdsaConfigs
+
+	return nil
+}
+
+func (s *GuardianStorage) storeFrostConf(cnf *party.TSSSecrets) error {
+	if cnf == nil {
+		return fmt.Errorf("TSSSecrets is nil")
+	}
+
+	// also validates conf != nil.
+	if !cnf.FrostConfigs.ValidateBasic() {
+		return fmt.Errorf("invalid frost configs in stored TSSSecrets")
+	}
+
+	if len(cnf.FrostConfigs.VerificationShares.Points) != len(s.IdentitiesKeep.Identities) {
+		return fmt.Errorf("number of verification shares does not match number of guardians")
 	}
 
 	s.frostconf = cnf.FrostConfigs
-
-	// TODO: cmp configs could be added here:
 
 	return nil
 }

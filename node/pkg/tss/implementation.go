@@ -195,6 +195,7 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 		zap.Uint8("consistency", consistencyLvl),
 		zap.Bool("isFromVaav1", mt.isFromVaav1),
 		zap.Int("numMatchingTrackIDS", len(sigPrepInfo.alreadyStartedSigningTrackingIDs)),
+		zap.String("signingProtocol", sigtask.ProtocolType.ToString()),
 	)
 
 	t.createSignatureMetrics(vaaDigest, chainID)
@@ -352,20 +353,14 @@ func (t *Engine) getProtocolForChain(chainID vaa.ChainID) common.ProtocolType {
 }
 
 func NewKeyGenerator(storage *GuardianStorage) (KeyGenerator, error) {
-	relTSS, err := NewReliableTSS(storage)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create reliable TSS: %w", err)
-	}
-
-	engine, ok := relTSS.(*Engine)
-	if !ok { // shouldn't happen, but just in case.
-		return nil, fmt.Errorf("reliable TSS does not implement KeyGenerator interface")
-	}
-
-	return engine, nil
+	return newEngine(storage)
 }
 
 func NewReliableTSS(storage *GuardianStorage) (ReliableTSS, error) {
+	return newEngine(storage)
+}
+
+func newEngine(storage *GuardianStorage) (*Engine, error) {
 	if storage == nil {
 		return nil, fmt.Errorf("the guardian's tss storage is nil")
 	}
