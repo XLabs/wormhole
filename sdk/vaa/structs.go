@@ -402,6 +402,11 @@ const (
 	// TSSVaaVersion uses a threshold signature scheme to sign the VAA struct.
 	// As a result, a valid VAA would result in a single signature.
 	TSSVaaVersion = 0x02
+
+	// The schnorr signature is constituted by:
+	// - r: 20 bytes
+	// - s: 32 bytes
+	SchnorrSigLength = 52
 )
 
 var SupportedVAAVersions = map[uint8]bool{VaaVersion1: true, TSSVaaVersion: true}
@@ -474,27 +479,41 @@ func Unmarshal(data []byte) (*VAA, error) {
 		return nil, fmt.Errorf("failed to read guardian set index: %w", err)
 	}
 
-	lenSignatures, er := reader.ReadByte()
-	if er != nil {
-		return nil, fmt.Errorf("failed to read signature length")
-	}
-
-	v.Signatures = make([]*Signature, lenSignatures)
-	for i := 0; i < int(lenSignatures); i++ {
-		index, err := reader.ReadByte()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read validator index [%d]", i)
+	if v.Version == VaaVersion1 {
+		lenSignatures, er := reader.ReadByte()
+		if er != nil {
+			return nil, fmt.Errorf("failed to read signature length")
 		}
 
+		v.Signatures = make([]*Signature, lenSignatures)
+		for i := 0; i < int(lenSignatures); i++ {
+			index, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to read validator index [%d]", i)
+			}
+
+			signature := [65]byte{}
+			if n, err := reader.Read(signature[:]); err != nil || n != 65 {
+				return nil, fmt.Errorf("failed to read signature [%d]: %w", i, err)
+			}
+
+			v.Signatures[i] = &Signature{
+				Index:     index,
+				Signature: signature,
+			}
+		}
+	} else if v.Version == TSSVaaVersion {
+		v.Signatures = make([]*Signature, 1)
 		signature := [65]byte{}
-		if n, err := reader.Read(signature[:]); err != nil || n != 65 {
-			return nil, fmt.Errorf("failed to read signature [%d]: %w", i, err)
+		if n, err := reader.Read(signature[:SchnorrSigLength]); err != nil || n != SchnorrSigLength {
+			return nil, fmt.Errorf("failed to read schnorr signature: %w", err)
 		}
-
-		v.Signatures[i] = &Signature{
-			Index:     index,
+		v.Signatures[0] = &Signature{
+			Index:     0,
 			Signature: signature,
 		}
+	} else {
+		return nil, fmt.Errorf("failed to read VAA version %d", v.Version)
 	}
 
 	return UnmarshalBody(data, reader, v)
@@ -707,10 +726,26 @@ func (v *VAA) Marshal() ([]byte, error) {
 	MustWrite(buf, binary.BigEndian, v.GuardianSetIndex)
 
 	// Write signatures
-	MustWrite(buf, binary.BigEndian, uint8(len(v.Signatures))) // #nosec G115 -- There will never be 256 guardians
-	for _, sig := range v.Signatures {
-		MustWrite(buf, binary.BigEndian, sig.Index)
-		buf.Write(sig.Signature[:])
+	if v.Version == VaaVersion1 {
+		MustWrite(buf, binary.BigEndian, uint8(len(v.Signatures))) // #nosec G115 -- There will never be 256 guardians
+		for _, sig := range v.Signatures {
+			MustWrite(buf, binary.BigEndian, sig.Index)
+			buf.Write(sig.Signature[:])
+		}
+	} else if v.Version == TSSVaaVersion {
+		if len(v.Signatures) != 1 {
+			panic(fmt.Errorf("tried to serialize v2 VAA with %d signatures", len(v.Signatures)).Error())
+		}
+
+		sig := v.Signatures[0]
+		zeroSlice := sig.Signature[SchnorrSigLength:]
+		if !bytes.Equal(zeroSlice, make([]byte, len(zeroSlice))) {
+			panic(fmt.Errorf("tried to serialize v2 VAA with invalid signature").Error())
+		}
+
+		buf.Write(sig.Signature[:SchnorrSigLength])
+	} else {
+		panic(fmt.Errorf("tried to serialize VAA version %d", v.Version).Error())
 	}
 
 	// Write Body
