@@ -76,6 +76,11 @@ type Configurations struct {
 	// LeaderIdentity is used by the TSS engine protocol to determine who is responsible for telling
 	// the other guardians about a new VAAv1.
 	LeaderIdentity PEM // The public key of the leader in PEM format.
+
+	// AllowedChainIDs is a map of chain IDs that the TSS signer is allowed to sign.
+	// If nil or empty, TSS is disabled for all chains.
+	// The key is the chain ID, and the value should be true for allowed chains.
+	AllowedChainIDs map[vaa.ChainID]bool
 }
 
 // GuardianStorage is a struct that holds the data needed for a guardian to participate in the TSS protocol
@@ -162,6 +167,23 @@ func (t *Engine) beginTSSSign(vaaDigest []byte, chainID vaa.ChainID, consistency
 
 	if len(vaaDigest) != digestSize {
 		return fmt.Errorf("vaaDigest length is not 32 bytes")
+	}
+
+	// Check if this chain ID is allowed for TSS signing
+	if len(t.AllowedChainIDs) > 0 {
+		if !t.AllowedChainIDs[chainID] {
+			t.logger.Info("skipping TSS signing for filtered chain ID",
+				zap.String("chainID", chainID.String()),
+				zap.String("digest", fmt.Sprintf("%x", vaaDigest)),
+			)
+			return nil
+		}
+	} else {
+		t.logger.Info("TSS signing is disabled for all chains",
+			zap.String("chainID", chainID.String()),
+			zap.String("digest", fmt.Sprintf("%x", vaaDigest)),
+		)
+		return nil
 	}
 
 	d := party.Digest{}
